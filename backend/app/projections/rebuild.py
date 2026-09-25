@@ -38,6 +38,17 @@ from backend.app.settings import Settings
 OBSERVATION_NAMESPACE = uuid.UUID("b8d12dc1-9b4e-4e16-a463-1323ea45b88c")
 
 
+def _route_revision_number(value: Any) -> int | None:
+    if value is None:
+        return None
+    if isinstance(value, int):
+        return value
+    text_value = str(value).strip().lower()
+    if text_value.startswith("v"):
+        text_value = text_value[1:]
+    return int(text_value) if text_value.isdigit() else None
+
+
 def advisory_lock_key(item_id: str) -> int:
     raw = int.from_bytes(hashlib.sha256(item_id.encode("utf-8")).digest()[:8], "big", signed=False)
     return raw - 2**64 if raw >= 2**63 else raw
@@ -320,8 +331,18 @@ def rebuild_item(db: Session, item_id: str, settings: Settings) -> None:
         route_revision_id = item.route_revision_id if item else None
         if not route_revision_id:
             route = db.scalar(select(RouteDefinition).where(RouteDefinition.code == (item_value.get("route_id") or "ROUTE-DEFAULT")))
-            if route and item_value.get("route_revision"):
-                revision = db.scalar(select(RouteRevision).where(RouteRevision.route_id == route.id, RouteRevision.revision == item_value["route_revision"]))
+            if route and item_value.get("route_revision") is not None:
+                revision_number = _route_revision_number(item_value.get("route_revision"))
+                revision = (
+                    db.scalar(
+                        select(RouteRevision).where(
+                            RouteRevision.route_id == route.id,
+                            RouteRevision.revision == revision_number,
+                        )
+                    )
+                    if revision_number is not None
+                    else None
+                )
                 route_revision_id = revision.id if revision else None
             elif route:
                 route_revision_id = route.active_revision_id
