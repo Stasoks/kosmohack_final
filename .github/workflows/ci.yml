@@ -50,9 +50,9 @@ jobs:
         env:
           PGPASSWORD: traceq_test
         run: |
-          psql -h localhost -U traceq_test -d traceq_test -v ON_ERROR_STOP=1 <<\'SQL\'
-          DO $ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='traceq_app') THEN CREATE ROLE traceq_app LOGIN PASSWORD 'traceq_app'; END IF; END $;
-          GRANT CONNECT ON DATABASE traceq_test TO traceq_app;
-          SQL
+          if ! psql -h localhost -U traceq_test -d traceq_test -tAc "SELECT 1 FROM pg_roles WHERE rolname='traceq_app'" | grep -q 1; then
+            psql -h localhost -U traceq_test -d traceq_test -v ON_ERROR_STOP=1 -c "CREATE ROLE traceq_app LOGIN PASSWORD 'traceq_app'"
+          fi
+          psql -h localhost -U traceq_test -d traceq_test -v ON_ERROR_STOP=1 -c "GRANT CONNECT ON DATABASE traceq_test TO traceq_app"
       - run: alembic upgrade head
       - run: pytest -m postgres backend/tests
