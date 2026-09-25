@@ -33,8 +33,13 @@ def test_canonical_hash_does_not_depend_on_key_order() -> None:
 
 
 def test_negative_duration_is_semantic_error() -> None:
-    value = fixture_event("S03", 3)
-    value["payload"]["duration"]["value"] = -1
+    value = fixture_event("S03", 2)
+    value["payload"].pop("duration_seconds", None)
+    value["payload"]["duration"] = {
+        "value": -1,
+        "unit": "s",
+        "meaning": "active_processing",
+    }
     with pytest.raises(TraceQError) as caught:
         validate_event(value)
     assert caught.value.code == "SEMANTIC_VALIDATION_ERROR"
