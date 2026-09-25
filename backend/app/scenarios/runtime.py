@@ -860,7 +860,7 @@ class ScenarioRuntime:
             "projection_failure": any(row.status == "failed" for row in self.db.scalars(select(ProjectionState)).all()),
             "defect_occurrence_count": len(occurrences),
             "items_with_defects_count": len({row.item_id for row in occurrences}),
-            "kpi_must_not_double_count": self.duplicates > 0 and len(occurrences) <= len(observations),
+            "kpi_must_not_double_count": self.duplicates > 0 and raw_count == self.deliveries - self.duplicates,
             "before_tamper": self.integrity_states[0] if self.integrity_states else None,
             "after_tamper": self.integrity_states[-1] if len(self.integrity_states) > 1 else None,
             "production_api_must_not_expose_tamper": True,
