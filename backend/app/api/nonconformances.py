@@ -29,6 +29,7 @@ from backend.app.security.audit import write_audit
 from backend.app.security.auth import Principal, require_critical_permission, require_permission
 from backend.app.security.crypto import utcnow
 from backend.app.quality.release import OutboundReleasePolicy
+from backend.app.quality.rework import repeat_good_covers_nonconformance
 
 
 router = APIRouter(prefix="/api/v1/nonconformances", tags=["nonconformances"])
@@ -320,12 +321,24 @@ def verify_rework(
     ).order_by(OperationRun.finished_at.desc()).limit(1))
     if not run or not run.finished_at:
         raise TraceQError("REWORK_NOT_COMPLETED", "A completed rework operation is required", 409)
-    trusted_good = db.scalar(select(Observation).where(
+    repeat_goods = db.scalars(select(Observation).where(
         Observation.item_id == ncr.item_id,
         Observation.occurred_at >= run.finished_at,
         Observation.inspection_result == "no_defect",
         Observation.trust_status == "TRUSTED",
-    ).order_by(Observation.occurred_at.desc()).limit(1))
+    ).order_by(Observation.occurred_at.desc())).all()
+    trusted_good = next(
+        (
+            observation
+            for observation in repeat_goods
+            if repeat_good_covers_nonconformance(
+                observation,
+                defect_type=ncr.defect_type,
+                component_instance_id=ncr.component_instance_id,
+            )
+        ),
+        None,
+    )
     effective_pass = body.passed and trusted_good is not None
     latest = db.scalar(select(ControllerDecision).where(ControllerDecision.nonconformance_id == ncr.id).order_by(ControllerDecision.created_at.desc()).limit(1))
     decision = ControllerDecision(
