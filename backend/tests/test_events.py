@@ -25,7 +25,7 @@ def test_all_scenario_events_validate() -> None:
 
 
 def test_canonical_hash_does_not_depend_on_key_order() -> None:
-    value = fixture_event("S03_new_defect")
+    value = fixture_event("S03")
     reordered = dict(reversed(list(value.items())))
     left = canonical_json_bytes(canonical_event_dict(validate_event(value)))
     right = canonical_json_bytes(canonical_event_dict(validate_event(reordered)))
@@ -33,7 +33,7 @@ def test_canonical_hash_does_not_depend_on_key_order() -> None:
 
 
 def test_negative_duration_is_semantic_error() -> None:
-    value = fixture_event("S03_new_defect", 3)
+    value = fixture_event("S03", 3)
     value["payload"]["duration"]["value"] = -1
     with pytest.raises(TraceQError) as caught:
         validate_event(value)
@@ -41,7 +41,7 @@ def test_negative_duration_is_semantic_error() -> None:
 
 
 def test_unknown_version_is_rejected() -> None:
-    value = fixture_event("S01_normal")
+    value = fixture_event("S01")
     value["schema_version"] = "9.9"
     with pytest.raises(TraceQError) as caught:
         validate_event(value)
@@ -49,6 +49,6 @@ def test_unknown_version_is_rejected() -> None:
 
 
 def test_optional_values_are_not_invented() -> None:
-    value = fixture_event("S02_incoming_defect")
+    value = fixture_event("S02")
     event = validate_event(value)
     assert event.operation_run_id is None
