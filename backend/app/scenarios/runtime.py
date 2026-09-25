@@ -37,6 +37,7 @@ from backend.app.persistence.models import (
     Observation,
     OperationRun,
     OutboxMessage,
+    ProjectionState,
     RawEvent,
     RouteDefinition,
     RouteRevision,
