@@ -857,7 +857,7 @@ class ScenarioRuntime:
             "evidence": latest_evidence,
             "root_cause_status": ncrs[-1].cause_status if ncrs else "not_established",
             "raw_history_rewritten": False,
-            "projection_failure": False,
+            "projection_failure": any(row.status == "failed" for row in self.db.scalars(select(ProjectionState)).all()),
             "defect_occurrence_count": len(occurrences),
             "items_with_defects_count": len({row.item_id for row in occurrences}),
             "kpi_must_not_double_count": self.duplicates > 0 and len(occurrences) <= len(observations),
