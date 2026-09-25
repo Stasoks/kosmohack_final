@@ -205,3 +205,66 @@ def test_route_import_activation_supersedes_previous_revision() -> None:
         for row in details.json()["revisions"]
     ]
     assert statuses == [(1, "superseded"), (2, "active")]
+
+
+def test_real_outbox_worker_retries_then_delivers_same_message(monkeypatch) -> None:
+    import httpx
+
+    from backend.app.persistence.database import SessionLocal
+    from backend.app.persistence.models import IntegrationHealth, OutboxMessage
+    from backend.app.security.crypto import utcnow
+    from worker import main as worker_main
+
+    client = _client()
+    controller = _login(client, "controller", "controller-demo")
+    response = client.post(
+        "/api/v1/demo/scenarios/S22/run",
+        headers=_headers(controller),
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["passed"] is True
+
+    db = SessionLocal()
+    try:
+        message = db.query(OutboxMessage).one()
+        original_message_id = message.message_id
+    finally:
+        db.close()
+
+    def fail_once(self, payload):
+        raise httpx.ConnectError("simulated ERP outage")
+
+    monkeypatch.setattr(worker_main.EmulatorAdapter, "send_quality_result", fail_once)
+    assert worker_main.process_one() is True
+
+    db = SessionLocal()
+    try:
+        message = db.query(OutboxMessage).one()
+        assert message.message_id == original_message_id
+        assert message.state == "RETRYING"
+        assert message.attempts == 1
+        health = db.get(IntegrationHealth, "erp-emulator")
+        assert health is not None
+        assert health.status == "UNHEALTHY"
+        message.next_attempt_at = utcnow()
+        db.commit()
+    finally:
+        db.close()
+
+    def ack(self, payload):
+        return {"message_id": payload["message_id"], "status": "ACK"}
+
+    monkeypatch.setattr(worker_main.EmulatorAdapter, "send_quality_result", ack)
+    assert worker_main.process_one() is True
+
+    db = SessionLocal()
+    try:
+        message = db.query(OutboxMessage).one()
+        assert message.message_id == original_message_id
+        assert message.state == "DELIVERED"
+        assert message.attempts == 2
+        health = db.get(IntegrationHealth, "erp-emulator")
+        assert health is not None
+        assert health.status == "HEALTHY"
+    finally:
+        db.close()
