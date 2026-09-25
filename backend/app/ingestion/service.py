@@ -20,13 +20,17 @@ from backend.app.errors import TraceQError
 from backend.app.persistence.models import (
     AuditEntry,
     ControlDeviceInvalidation,
+    Equipment,
     EventSource,
     IngestAttempt,
     IntegrityStreamState,
+    Item,
+    OperationRun,
     ProjectionState,
     RawEvent,
     Observation,
     SecurityAlert,
+    Station,
     TransportNonce,
 )
 from backend.app.security.crypto import (
@@ -142,6 +146,58 @@ def _authenticate_source(
     return source
 
 
+def _resolve_event_scope(db: Session, event: Any, payload: dict[str, Any]) -> tuple[str | None, str | None]:
+    """Resolve line/station from the event and already-known production context."""
+    line_id = payload.get("line_id")
+    station_id = payload.get("station_id")
+    item_id = event.item_id
+
+    if event.operation_run_id:
+        run = db.get(OperationRun, event.operation_run_id)
+        if run:
+            station_id = station_id or run.station_id
+            item_id = item_id or run.item_id
+
+    if item_id:
+        item = db.get(Item, item_id)
+        if item:
+            line_id = line_id or item.line_id
+
+    equipment_id = payload.get("equipment_id")
+    if station_id is None and equipment_id:
+        equipment = db.get(Equipment, equipment_id)
+        if equipment:
+            station_id = equipment.station_id
+
+    if line_id is None and station_id:
+        station = db.get(Station, station_id)
+        if station:
+            line_id = station.line_id
+
+    return line_id, station_id
+
+
+def _enforce_source_scope(
+    db: Session,
+    source: EventSource,
+    event: Any,
+    payload: dict[str, Any],
+) -> None:
+    line_id, station_id = _resolve_event_scope(db, event, payload)
+    if source.allowed_line_ids and line_id not in source.allowed_line_ids:
+        raise TraceQError(
+            "SOURCE_SCOPE_VIOLATION",
+            "Event line cannot be resolved inside the source allowed scope",
+            403,
+        )
+    if source.allowed_station_ids and station_id not in source.allowed_station_ids:
+        raise TraceQError(
+            "SOURCE_SCOPE_VIOLATION",
+            "Event station cannot be resolved inside the source allowed scope",
+            403,
+        )
+
+
 def ingest_event(
     db: Session,
     value: Any,
@@ -170,10 +226,7 @@ def ingest_event(
                 403,
             )
         payload = event.payload.model_dump(mode="json")
-        if source.allowed_line_ids and payload.get("line_id") not in (None, *source.allowed_line_ids):
-            raise TraceQError("SOURCE_SCOPE_VIOLATION", "Source is outside its allowed line scope", 403)
-        if source.allowed_station_ids and payload.get("station_id") not in (None, *source.allowed_station_ids):
-            raise TraceQError("SOURCE_SCOPE_VIOLATION", "Source is outside its allowed station scope", 403)
+        _enforce_source_scope(db, source, event, payload)
         if event.event_type == "control_device.invalidated" and source.source_type != "calibration_system":
             raise TraceQError("SOURCE_SCOPE_VIOLATION", "Only a calibration source may invalidate a control device", 403)
         if event.source.sequence is not None and source.last_source_sequence is not None and event.source.sequence <= source.last_source_sequence:
