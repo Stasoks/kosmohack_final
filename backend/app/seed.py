@@ -225,9 +225,13 @@ def seed() -> None:
             token = settings.source_demo_token.get_secret_value()
             sources = {
                 "MES-01": ("mes", ["item.registered", "operation.started", "operation.finished"]),
+                "VISION-01": ("vision_qc", ["inspection.result"]),
                 "VISION-02": ("vision_qc", ["inspection.result"]),
+                "EQUIP-GW-01": ("equipment_gateway", ["machine.state"]),
                 "MACHINE-01": ("machine_logs", ["machine.state"]),
+                "OPTERM-01": ("operator_terminal", ["operator.action"]),
                 "OPERATOR-01": ("operator_vision", ["operator.action"]),
+                "CAL-01": ("calibration_system", ["control_device.invalidated"]),
                 "CALIBRATION-01": ("calibration_system", ["control_device.invalidated"]),
             }
             for number in range(1, 11):
