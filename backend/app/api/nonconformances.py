@@ -20,12 +20,15 @@ from backend.app.persistence.models import (
     InvestigationNote,
     Nonconformance,
     OutboxMessage,
+    Observation,
+    OperationRun,
     QualityResult,
     RawEvent,
 )
 from backend.app.security.audit import write_audit
-from backend.app.security.auth import Principal, require_permission
+from backend.app.security.auth import Principal, require_critical_permission, require_permission
 from backend.app.security.crypto import utcnow
+from backend.app.quality.release import OutboundReleasePolicy
 
 
 router = APIRouter(prefix="/api/v1/nonconformances", tags=["nonconformances"])
@@ -67,6 +70,11 @@ class ContainmentProposalRequest(BaseModel):
 
 class ContainmentReviewRequest(BaseModel):
     approve: bool
+    reason: str = Field(min_length=3, max_length=3000)
+
+
+class ReworkVerificationRequest(BaseModel):
+    passed: bool
     reason: str = Field(min_length=3, max_length=3000)
 
 
@@ -115,6 +123,8 @@ def list_nonconformances(
             "opened_at": row.opened_at,
             "closed_at": row.closed_at,
             "current_analysis_version": row.current_analysis_version,
+            "resolution_type": row.resolution_type,
+            "verification_status": row.verification_status,
         }
         for row in rows
     ]
@@ -156,6 +166,8 @@ def get_nonconformance(
         "cause_status": row.cause_status,
         "disposition": row.disposition,
         "containment": row.containment,
+        "resolution_type": row.resolution_type,
+        "verification_status": row.verification_status,
         "analysis_versions": [
             {
                 "id": version.id,
@@ -237,7 +249,7 @@ def decide_nonconformance(
     ncr_id: uuid.UUID,
     body: DecisionRequest,
     request: Request,
-    principal: Principal = Depends(require_permission("ISSUE_QC_DECISION")),
+    principal: Principal = Depends(require_critical_permission("ISSUE_QC_DECISION")),
     db: Session = Depends(get_db),
 ):
     ncr = _ncr_or_404(db, ncr_id)
@@ -266,39 +278,12 @@ def decide_nonconformance(
     item = db.get(Item, ncr.item_id)
     if item:
         item.status = body.disposition
+    if body.disposition == "REWORK_REQUIRED":
+        ncr.resolution_type = "rework"
+        ncr.verification_status = "PENDING"
+    message_id = None
     if body.disposition in {"RELEASED", "SCRAPPED", "USE_AS_IS"}:
-        ncr.closed_at = utcnow()
-        occurrence = db.get(DefectOccurrence, ncr.occurrence_id)
-        if occurrence:
-            occurrence.status = "CLOSED"
-            occurrence.closed_at = utcnow()
-    message_id = f"QR-{decision.id}"
-    payload = {
-        "message_id": message_id,
-        "item_id": ncr.item_id,
-        "nonconformance_id": str(ncr.id),
-        "decision_id": str(decision.id),
-        "verdict": body.verdict,
-        "disposition": body.disposition,
-        "containment": body.containment,
-        "decided_at": utcnow().isoformat(),
-    }
-    db.add(
-        QualityResult(
-            message_id=message_id,
-            decision_id=decision.id,
-            item_id=ncr.item_id,
-            payload=payload,
-        )
-    )
-    db.add(
-        OutboxMessage(
-            message_id=message_id,
-            destination="erp-emulator",
-            message_type="quality.result",
-            payload=payload,
-        )
-    )
+        message_id, _ = OutboundReleasePolicy.create_result(db, ncr, decision)
     write_audit(
         db,
         action="controller_decision",
@@ -316,7 +301,55 @@ def decide_nonconformance(
         },
     )
     db.commit()
-    return {"decision_id": decision.id, "message_id": message_id, "outbox_state": "PENDING"}
+    return {"decision_id": decision.id, "message_id": message_id, "outbox_state": "PENDING" if message_id else None}
+
+
+@router.post("/{ncr_id}/verify-rework")
+def verify_rework(
+    ncr_id: uuid.UUID, body: ReworkVerificationRequest, request: Request,
+    principal: Principal = Depends(require_critical_permission("ISSUE_QC_DECISION")),
+    db: Session = Depends(get_db),
+):
+    ncr = _ncr_or_404(db, ncr_id)
+    _ensure_evidence_integrity(db, ncr.item_id)
+    run = db.scalar(select(OperationRun).where(
+        OperationRun.item_id == ncr.item_id,
+        OperationRun.run_reason == "rework",
+        OperationRun.rework_for_nonconformance_id == ncr.id,
+        OperationRun.completion_status == "completed",
+    ).order_by(OperationRun.finished_at.desc()).limit(1))
+    if not run or not run.finished_at:
+        raise TraceQError("REWORK_NOT_COMPLETED", "A completed rework operation is required", 409)
+    trusted_good = db.scalar(select(Observation).where(
+        Observation.item_id == ncr.item_id,
+        Observation.occurred_at >= run.finished_at,
+        Observation.inspection_result == "no_defect",
+        Observation.trust_status == "TRUSTED",
+    ).order_by(Observation.occurred_at.desc()).limit(1))
+    effective_pass = body.passed and trusted_good is not None
+    latest = db.scalar(select(ControllerDecision).where(ControllerDecision.nonconformance_id == ncr.id).order_by(ControllerDecision.created_at.desc()).limit(1))
+    decision = ControllerDecision(
+        nonconformance_id=ncr.id, user_id=principal.user_id,
+        verdict="confirmed", disposition="RELEASED" if effective_pass else "REWORK_REQUIRED",
+        containment="NONE" if effective_pass else "HOLD", reason=body.reason,
+        analysis_version=ncr.current_analysis_version, previous_decision_id=latest.id if latest else None,
+    )
+    db.add(decision); db.flush()
+    ncr.verification_decision_id = decision.id
+    ncr.verification_status = "PASSED" if effective_pass else "FAILED"
+    message_id = None
+    if effective_pass:
+        ncr.resolution_type, ncr.resolved_at = "rework", utcnow()
+        ncr.disposition, ncr.containment = "RELEASED", "NONE"
+        message_id, _ = OutboundReleasePolicy.create_result(db, ncr, decision)
+    else:
+        ncr.disposition, ncr.containment = "REWORK_REQUIRED", "HOLD"
+    write_audit(db, action="rework_verification", outcome="passed" if effective_pass else "failed",
+                actor_user_id=principal.user_id, session_id=principal.session_id,
+                target_type="nonconformance", target_id=str(ncr.id), request_id=request.state.request_id,
+                safe_details={"reason": body.reason, "repeat_inspection_event_id": trusted_good.event_id if trusted_good else None})
+    db.commit()
+    return {"verification_status": ncr.verification_status, "decision_id": decision.id, "message_id": message_id}
 
 
 @router.post("/{ncr_id}/request-inspection")

@@ -14,6 +14,7 @@ from backend.app.persistence.models import (
     IntegrationHealth,
     IntegrationMessage,
     OutboxMessage,
+    SecurityAlert,
     WorkerHeartbeat,
 )
 from backend.app.security.crypto import utcnow
@@ -56,6 +57,10 @@ def process_one() -> bool:
         adapter = EmulatorAdapter(settings.erp_emulator_url, settings.erp_timeout_seconds)
         try:
             ack = adapter.send_quality_result(message.payload)
+            if ack.get("message_id") != message.message_id or ack.get("status") != "ACK":
+                db.add(SecurityAlert(alert_type="INVALID_ACK", severity="HIGH", target_type="outbox_message",
+                                     target_id=message.message_id, details={"ack_message_id": ack.get("message_id")}))
+                raise ValueError("ERP acknowledgement correlation mismatch")
             message.state = "DELIVERED"
             message.delivered_at = utcnow()
             message.last_error = None
@@ -106,6 +111,12 @@ def process_one() -> bool:
                     safe_payload={"error_type": type(exc).__name__, "attempt": message.attempts},
                 )
             )
+        except ValueError as exc:
+            message.state = "FAILED"
+            message.last_error = str(exc)
+            db.add(IntegrationMessage(message_id=message.message_id, direction="outbound",
+                                      external_system=message.destination, status="FAILED",
+                                      safe_payload={"error_type": "INVALID_ACK"}))
         db.commit()
         return True
     except Exception:

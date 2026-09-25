@@ -36,12 +36,16 @@ class Settings(BaseSettings):
     aes_key_id: str = "data-key-v1"
     integrity_hmac_key_b64: SecretStr
     integrity_key_id: str = "integrity-key-v1"
+    checkpoint_private_key_pem_b64: SecretStr | None = None
 
     erp_emulator_url: str = "http://erp-emulator:8090"
     erp_timeout_seconds: float = 5.0
     outbox_poll_seconds: float = 1.0
     outbox_max_attempts: int = 8
     source_demo_token: SecretStr | None = None
+    source_hmac_secrets_json: SecretStr | None = None
+    source_timestamp_tolerance_seconds: int = 300
+    mass_containment_threshold: int = 20
 
     demo_controller_password: SecretStr | None = None
     demo_master_password: SecretStr | None = None
@@ -52,6 +56,11 @@ class Settings(BaseSettings):
     @field_validator("source_demo_token", mode="before")
     @classmethod
     def empty_source_token_is_none(cls, value):
+        return None if value in (None, "") else value
+
+    @field_validator("source_hmac_secrets_json", mode="before")
+    @classmethod
+    def empty_hmac_map_is_none(cls, value):
         return None if value in (None, "") else value
 
     @field_validator("aes_data_key_b64")

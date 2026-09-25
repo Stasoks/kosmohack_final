@@ -20,8 +20,12 @@ dependencies = [
   "uvicorn[standard]==0.36.0",
 ]
 
+[project.optional-dependencies]
+pq = ["liboqs-python>=0.10,<1"]
+
 [dependency-groups]
 dev = [
+  "datamodel-code-generator==0.33.0",
   "jsonschema==4.25.1",
   "pytest==8.4.2",
   "pytest-cov==7.0.0",

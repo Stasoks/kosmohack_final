@@ -23,6 +23,9 @@ async def receive_event(
     request: Request,
     x_source_id: str | None = Header(default=None, alias="X-Source-Id"),
     x_source_token: str | None = Header(default=None, alias="X-Source-Token"),
+    x_source_timestamp: str | None = Header(default=None, alias="X-Source-Timestamp"),
+    x_source_nonce: str | None = Header(default=None, alias="X-Source-Nonce"),
+    x_source_signature: str | None = Header(default=None, alias="X-Source-Signature"),
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings),
 ):
@@ -39,6 +42,9 @@ async def receive_event(
         value,
         header_source_id=x_source_id,
         source_token=x_source_token,
+        source_timestamp=x_source_timestamp,
+        source_nonce=x_source_nonce,
+        source_signature=x_source_signature,
         settings=settings,
     )
     projection_status = result.projection_status
@@ -56,12 +62,22 @@ async def receive_event(
             projection_status = "failed"
         finally:
             projection_db.close()
+    for affected_item in result.affected_items:
+        projection_db = SessionLocal()
+        try:
+            rebuild_item(projection_db, affected_item, settings)
+        except Exception as exc:
+            projection_db.rollback()
+            mark_projection_failed(projection_db, affected_item, f"{type(exc).__name__}: {exc}")
+        finally:
+            projection_db.close()
     return {
         "event_id": result.event_id,
         "ingestion_status": result.ingestion_status,
         "projection_status": projection_status,
         "content_hash": result.content_hash,
         "warnings": result.warnings,
+        "affected_items": result.affected_items,
     }
 
 
@@ -81,6 +97,10 @@ def get_event(
         source_id=raw.source_id,
         schema_version=raw.schema_version,
         received_at=raw.received_at,
+        occurred_at=raw.occurred_at,
+        item_id=raw.item_id,
+        crypto_key_id=raw.crypto_key_id,
+        profile=raw.crypto_profile_id,
     )
     plaintext = decrypt_event(raw.payload_ciphertext, raw.nonce, settings.aes_key(), aad)
     return {

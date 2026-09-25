@@ -25,3 +25,7 @@ Every directory under `scenarios/` contains `events.jsonl` and `expected.json`. 
 7. Run S09 after reset as admin; `Verify Integrity` reports failure. Attempting a new controller decision based on that item is blocked.
 
 Scenario Runner is an explainable demo surface, not a replacement for automated tests.
+
+## Harness V2
+
+S01-S25 are discoverable acceptance bundles. The harness reads `scenario.json`, `events.jsonl`, `expected.json`, and optional actions/requests/ERP/tamper/analysis/route files. File order is delivery order; `occurred_at` is production time and is never used to reorder delivery. Expected documents are subset business invariants rather than database snapshots.

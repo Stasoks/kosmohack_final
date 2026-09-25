@@ -18,6 +18,13 @@ PERMISSIONS = (
     "VERIFY_INTEGRITY",
     "REPLAY_REBUILD",
     "RUN_DEMO_SCENARIOS",
+    "INVALIDATE_CONTROL_DEVICE",
+    "MANAGE_TRUST_POLICY",
+    "ROTATE_KEYS",
+    "CHANGE_CRYPTO_PROFILE",
+    "EXPORT_EVIDENCE",
+    "APPROVE_CRITICAL_ACTION",
+    "RUN_BLAST_RADIUS",
 )
 
 ROLE_PERMISSIONS: dict[str, set[str]] = {
@@ -32,6 +39,8 @@ ROLE_PERMISSIONS: dict[str, set[str]] = {
         "VIEW_LINE",
         "CREATE_INVESTIGATION_NOTE",
         "APPROVE_CONTAINMENT",
+        "INVALIDATE_CONTROL_DEVICE",
+        "APPROVE_CRITICAL_ACTION",
         "RUN_DEMO_SCENARIOS",
     },
     "master": {
@@ -53,6 +62,7 @@ ROLE_PERMISSIONS: dict[str, set[str]] = {
         "CREATE_INVESTIGATION_NOTE",
         "MANAGE_ROUTES",
         "PROPOSE_CONTAINMENT",
+        "RUN_BLAST_RADIUS",
         "RUN_DEMO_SCENARIOS",
     },
     "manager": {
@@ -69,6 +79,10 @@ ROLE_PERMISSIONS: dict[str, set[str]] = {
         "VIEW_AUDIT",
         "VERIFY_INTEGRITY",
         "REPLAY_REBUILD",
+        "MANAGE_TRUST_POLICY",
+        "ROTATE_KEYS",
+        "CHANGE_CRYPTO_PROFILE",
+        "EXPORT_EVIDENCE",
         "RUN_DEMO_SCENARIOS",
     },
 }

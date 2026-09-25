@@ -18,3 +18,31 @@ jobs:
       - run: python scripts/check_contract_fixtures.py
       - run: pytest -m "not postgres"
       - run: python -m compileall -q backend erp_emulator worker streamlit_app scripts shared_contracts
+
+  postgres-integration:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16.10-alpine
+        env:
+          POSTGRES_DB: traceq_test
+          POSTGRES_USER: traceq_test
+          POSTGRES_PASSWORD: traceq_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U traceq_test -d traceq_test"
+          --health-interval 3s --health-timeout 3s --health-retries 20
+    env:
+      ENVIRONMENT: test
+      TRACEQ_TEST_DATABASE_URL: postgresql+psycopg://traceq_test:traceq_test@localhost:5432/traceq_test
+      DATABASE_URL: postgresql+psycopg://traceq_test:traceq_test@localhost:5432/traceq_test
+      JWT_SIGNING_SECRET: test-jwt-secret-at-least-32-bytes-long
+      AES_DATA_KEY_B64: MDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDA=
+      INTEGRITY_HMAC_KEY_B64: MTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTE=
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.12"}
+      - run: python -m pip install . pytest==8.4.2 jsonschema==4.25.1 datamodel-code-generator==0.33.0
+      - run: alembic upgrade head
+      - run: pytest -m postgres backend/tests

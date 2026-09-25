@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from backend.app.persistence.models import IntegrityStreamState, RawEvent
+from backend.app.persistence.models import IntegrityStreamState, RawEvent, SecurityAlert
 from backend.app.security.crypto import compute_integrity_mac, integrity_metadata
 from backend.app.settings import Settings
 
@@ -66,5 +66,15 @@ def verify_integrity(db: Session, settings: Settings) -> list[IntegrityFailure]:
         state = db.get(IntegrityStreamState, stream_id)
         if state:
             state.status = "INTEGRITY_FAILED" if any(f.stream_id == stream_id for f in failures) else "OK"
+    for failure in failures:
+        exists = db.scalar(select(SecurityAlert.id).where(
+            SecurityAlert.alert_type == "RAW_LOG_INTEGRITY_FAILED",
+            SecurityAlert.target_id == failure.event_id,
+        ).limit(1))
+        if not exists:
+            db.add(SecurityAlert(alert_type="RAW_LOG_INTEGRITY_FAILED", severity="CRITICAL",
+                                 target_type="raw_event", target_id=failure.event_id,
+                                 details={"stream_id": failure.stream_id, "sequence": failure.sequence,
+                                          "reason": failure.reason}))
     db.commit()
     return failures

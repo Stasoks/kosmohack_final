@@ -21,3 +21,7 @@ Target ownership:
 | KOMPAS-3D | assembly revision/structure | none in P0 | product-structure provider |
 
 If structure is unavailable, `structure_status=unavailable`; component analysis degrades but item-level QC continues. Same revision with a different content hash must create `REVISION_CONTENT_CHANGED`, never overwrite a snapshot.
+
+## Controlled outbound and KOMPAS fallback
+
+Only `OutboundReleasePolicy` can construct a QualityResult and outbox message. Rework and raw defect signals are not exportable decisions. ACK correlation must match the stable message ID. KOMPAS remains behind `KompasProductStructureProvider`; absence sets `structure_status=degraded` while item-level analysis, NCR, rework, and release remain available.

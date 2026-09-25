@@ -20,3 +20,7 @@ Evidence is relational and typed. Boundaries are `LAST_TRUSTED_GOOD` and `FIRST_
 Late events can change boundaries. Replay appends AnalysisVersion v2 with `reason=late_event_rebuild`; v1 remains available. Human cause confirmation is a separate record and is not produced by this algorithm.
 
 The current KPI endpoint reports the calculation timestamp and explicitly labels station grouping as detection/context rather than causality.
+
+## Conflicts, invalidation, and KPI
+
+Conflicts group by `capture_session_id`, falling back to a bounded five-minute control-point session. Opposing eligible GOOD/DEFECT observations become CONFLICTED and cannot create a trusted boundary. Device invalidation changes derived trust, preserves the observation and prior AnalysisVersion, and recalculates the birth window. KPI counts DefectOccurrence rather than observations; duplicates do not change KPI and successful rework does not retroactively restore first-pass yield.

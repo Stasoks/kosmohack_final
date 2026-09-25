@@ -53,3 +53,7 @@ This is a deterministic tie-break, not a claim of causality.
 - Add a vendor system by implementing `ProductionSystemAdapter`; no production rule references 1C/Galaktika field names.
 
 The principal bottlenecks are item-hotspot replay, source-scoped integrity serialization, PostgreSQL I/O, and analytical scans. The current demo uses one API process and one worker to fit about 1 CPU/1 GB RAM. Horizontal replicas require the same database, crypto keys, contract registry, and clock discipline.
+
+## 2026 hardening flow
+
+`RawEvent -> deterministic projection -> Observation Trust -> DefectOccurrence -> NCR -> ControllerDecision -> OutboundReleasePolicy -> QualityResult/Outbox -> ERP ACK`. Device invalidations are immutable facts that mark derived observations INVALIDATED and create a new AnalysisVersion. Blast Radius ends at a proposal/approval boundary and never creates defects or HOLD automatically.

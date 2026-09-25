@@ -1,6 +1,10 @@
 {
   "contracts": [
     {
+      "event_type": "control_device.invalidated",
+      "schema_version": "1.0"
+    },
+    {
       "event_type": "inspection.result",
       "schema_version": "1.0"
     },

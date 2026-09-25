@@ -46,9 +46,12 @@ For the full demonstration sequence, including ERP timeout/recovery and tamper d
 ## Tests and contracts
 
 ```bash
-make check-contracts
-make test-unit
-docker compose --env-file .env -f compose.yaml -f compose.demo.yaml run --rm backend pytest
+./scripts/run_tests.sh unit
+./scripts/run_tests.sh postgres
+./scripts/run_tests.sh scenarios
+./scripts/run_tests.sh security
+./scripts/run_tests.sh contracts
+./scripts/run_tests.sh all
 ```
 
 PostgreSQL integration tests use `TRACEQ_TEST_DATABASE_URL`; SQLite is intentionally not a supported integration fallback.
@@ -84,3 +87,9 @@ PostgreSQL integration tests use `TRACEQ_TEST_DATABASE_URL`; SQLite is intention
 - Root cause is never established automatically.
 - The JSON product-structure provider keeps item-level QC operational when component structure is unavailable.
 - Real 1C, Galaktika, MES, and KOMPAS transports require site-specific API details and credentials; the business-facing ports and fixture adapters are present without invented vendor URLs.
+
+## Completed hardening scope
+
+The canonical envelope owns `item_id` and `operation_run_id`; payloads do not duplicate them. Items pin a RouteRevision at registration. Source Registry supports lifecycle status, event/line/station scopes, legacy shared secrets and HMAC_V1 nonce replay protection. Server-side sessions revoke access immediately for critical actions. Rework requires a completed rework run, trusted repeat GOOD and controller verification before controlled outbound release. Evidence invalidation, Blast Radius proposals with separation of duties, S01-S25 Harness V2, occurrence-based KPI, security alerts, isolated test compose and optional hybrid-PQ profile metadata are included.
+
+Tests/build were prepared but intentionally not executed by the implementation agent.

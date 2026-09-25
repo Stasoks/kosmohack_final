@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import uuid
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -11,7 +11,8 @@ from backend.app.errors import NotFoundError, TraceQError
 from backend.app.domain.routes import StepInput, validate_steps
 from backend.app.persistence.database import get_db
 from backend.app.persistence.models import Item, RouteDefinition, RouteRevision, RouteStep
-from backend.app.security.auth import Principal, require_permission
+from backend.app.security.auth import Principal, require_critical_permission, require_permission
+from backend.app.security.audit import write_audit
 from backend.app.security.crypto import utcnow
 
 
@@ -158,7 +159,9 @@ def create_revision(
 def activate_revision(
     route_id: uuid.UUID,
     revision_id: uuid.UUID,
-    _: Principal = Depends(require_permission("MANAGE_ROUTES")),
+    reason: str,
+    request: Request,
+    principal: Principal = Depends(require_critical_permission("MANAGE_ROUTES")),
     db: Session = Depends(get_db),
 ):
     route = db.get(RouteDefinition, route_id)
@@ -172,6 +175,10 @@ def activate_revision(
     revision.status = "active"
     revision.immutable_after = revision.immutable_after or utcnow()
     route.active_revision_id = revision.id
+    write_audit(db, action="route_revision_activation", outcome="success",
+                actor_user_id=principal.user_id, session_id=principal.session_id,
+                target_type="route_revision", target_id=str(revision.id), request_id=request.state.request_id,
+                safe_details={"route_id": str(route.id), "revision": revision.revision, "reason": reason[:1000]})
     db.commit()
     return {"status": "active", "revision_id": revision.id}
 

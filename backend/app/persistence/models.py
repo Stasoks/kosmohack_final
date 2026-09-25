@@ -93,13 +93,33 @@ class RefreshToken(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
+class AuthSession(Base):
+    __tablename__ = "auth_sessions"
+    id: Mapped[uuid.UUID] = uuid_pk()
+    user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"), index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    last_authenticated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
+
+
 class EventSource(Base):
     __tablename__ = "event_sources"
     source_id: Mapped[str] = mapped_column(String(128), primary_key=True)
     source_type: Mapped[str] = mapped_column(String(64))
     enabled: Mapped[bool] = mapped_column(Boolean, default=True)
-    token_hash: Mapped[str] = mapped_column(String(255))
+    status: Mapped[str] = mapped_column(String(32), default="ACTIVE", index=True)
+    auth_method: Mapped[str] = mapped_column(String(32), default="shared_secret_legacy")
+    token_hash: Mapped[str | None] = mapped_column(String(255))
+    secret_env_name: Mapped[str | None] = mapped_column(String(128))
+    key_id: Mapped[str | None] = mapped_column(String(128))
     allowed_event_types: Mapped[list[str]] = mapped_column(JSONB, default=list)
+    allowed_line_ids: Mapped[list[str]] = mapped_column(JSONB, default=list)
+    allowed_station_ids: Mapped[list[str]] = mapped_column(JSONB, default=list)
+    valid_from: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    valid_to: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_source_sequence: Mapped[int | None] = mapped_column(BigInteger)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
@@ -115,6 +135,27 @@ class IngestAttempt(Base):
     payload_hash: Mapped[str | None] = mapped_column(String(64))
     rejected_payload_ciphertext: Mapped[bytes | None] = mapped_column(LargeBinary)
     safe_error_details: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+
+
+class TransportNonce(Base):
+    __tablename__ = "transport_nonces"
+    source_id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    nonce: Mapped[str] = mapped_column(String(128), primary_key=True)
+    timestamp: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class SecurityAlert(Base):
+    __tablename__ = "security_alerts"
+    id: Mapped[uuid.UUID] = uuid_pk()
+    alert_type: Mapped[str] = mapped_column(String(64), index=True)
+    severity: Mapped[str] = mapped_column(String(16), default="MEDIUM", index=True)
+    source_id: Mapped[str | None] = mapped_column(String(128), index=True)
+    target_type: Mapped[str | None] = mapped_column(String(64))
+    target_id: Mapped[str | None] = mapped_column(String(128))
+    details: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 class IntegrityStreamState(Base):
@@ -170,6 +211,9 @@ class AuditEntry(Base):
     request_id: Mapped[str | None] = mapped_column(String(64))
     timestamp: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     safe_details: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+    integrity_sequence: Mapped[int | None] = mapped_column(BigInteger)
+    prev_integrity_mac: Mapped[bytes | None] = mapped_column(LargeBinary)
+    integrity_mac: Mapped[bytes | None] = mapped_column(LargeBinary)
 
 
 class ProductDefinition(Base):
@@ -343,6 +387,10 @@ class Nonconformance(Base):
     opened_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     closed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     current_analysis_version: Mapped[int] = mapped_column(Integer, default=1)
+    resolution_type: Mapped[str | None] = mapped_column(String(32))
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    verification_decision_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
+    verification_status: Mapped[str | None] = mapped_column(String(32))
 
 
 class AnalysisVersion(Base):
@@ -401,7 +449,8 @@ class InvestigationNote(Base):
 class ContainmentProposal(Base):
     __tablename__ = "containment_proposals"
     id: Mapped[uuid.UUID] = uuid_pk()
-    nonconformance_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), index=True)
+    nonconformance_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), index=True)
+    blast_radius_query_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), index=True)
     proposed_by: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), index=True)
     containment: Mapped[str] = mapped_column(String(32))
     rationale: Mapped[str] = mapped_column(Text)
@@ -410,6 +459,58 @@ class ContainmentProposal(Base):
     review_reason: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class BlastRadiusQuery(Base):
+    __tablename__ = "blast_radius_queries"
+    id: Mapped[uuid.UUID] = uuid_pk()
+    factor_type: Mapped[str] = mapped_column(String(32), index=True)
+    factor_value: Mapped[str] = mapped_column(String(256), index=True)
+    affected_from: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    affected_to: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    requested_by: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class BlastRadiusExposure(Base):
+    __tablename__ = "blast_radius_exposures"
+    id: Mapped[uuid.UUID] = uuid_pk()
+    query_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("blast_radius_queries.id"), index=True)
+    item_id: Mapped[str] = mapped_column(String(128), index=True)
+    relationship_path: Mapped[list[Any]] = mapped_column(JSONB, default=list)
+    exposure_event_id: Mapped[str | None] = mapped_column(String(128))
+    operation_run_id: Mapped[str | None] = mapped_column(String(128))
+    last_inspection_event_id: Mapped[str | None] = mapped_column(String(128))
+    proposed_action: Mapped[str] = mapped_column(String(32), default="REVIEW_REQUIRED")
+
+
+class ApprovalRequest(Base):
+    __tablename__ = "approval_requests"
+    id: Mapped[uuid.UUID] = uuid_pk()
+    action_type: Mapped[str] = mapped_column(String(64), index=True)
+    target_type: Mapped[str] = mapped_column(String(64))
+    target_id: Mapped[str] = mapped_column(String(128), index=True)
+    requester_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), index=True)
+    required_approvals: Mapped[int] = mapped_column(Integer, default=1)
+    approvals: Mapped[list[Any]] = mapped_column(JSONB, default=list)
+    status: Mapped[str] = mapped_column(String(32), default="PENDING", index=True)
+    reason: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class ControlDeviceInvalidation(Base):
+    __tablename__ = "control_device_invalidations"
+    id: Mapped[uuid.UUID] = uuid_pk()
+    source_event_id: Mapped[str | None] = mapped_column(String(128), unique=True)
+    device_id: Mapped[str] = mapped_column(String(128), index=True)
+    affected_from: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    affected_to: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    reason: Mapped[str] = mapped_column(Text)
+    invalidation_type: Mapped[str | None] = mapped_column(String(64))
+    supporting_evidence_refs: Mapped[list[Any]] = mapped_column(JSONB, default=list)
+    created_by_user_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
 class ControllerDecision(Base):
@@ -570,3 +671,24 @@ class WorkerHeartbeat(Base):
     worker_type: Mapped[str] = mapped_column(String(64))
     heartbeat_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     status: Mapped[str] = mapped_column(String(32), default="healthy")
+
+
+class CryptoProfile(Base):
+    __tablename__ = "crypto_profiles"
+    profile_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    status: Mapped[str] = mapped_column(String(32), default="INACTIVE")
+    algorithms: Mapped[dict[str, Any]] = mapped_column(JSONB)
+    activated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class IntegrityCheckpoint(Base):
+    __tablename__ = "integrity_checkpoints"
+    id: Mapped[uuid.UUID] = uuid_pk()
+    stream_type: Mapped[str] = mapped_column(String(32), index=True)
+    stream_id: Mapped[str] = mapped_column(String(128), index=True)
+    sequence: Mapped[int] = mapped_column(BigInteger)
+    root_mac: Mapped[bytes] = mapped_column(LargeBinary)
+    crypto_profile_id: Mapped[str] = mapped_column(String(64))
+    classic_signature: Mapped[bytes] = mapped_column(LargeBinary)
+    pq_signature: Mapped[bytes | None] = mapped_column(LargeBinary)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

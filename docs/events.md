@@ -22,3 +22,7 @@ Validation outcomes:
 Canonical JSON uses sorted keys, UTF-8, and compact separators. Same event ID plus the same canonical hash is a successful duplicate; no domain count changes. Same ID plus different content is `409 EVENT_ID_CONFLICT`; the original remains unchanged.
 
 `received_at` is assigned by TRACE-Q. `ingest_seq` is recovery/audit order, never production time. Source clocks should be monitored; deterministic ordering cannot prove causality when timestamps collide.
+
+## Canonical envelope and device invalidation
+
+`item_id` and `operation_run_id` belong only to the envelope. Legacy fixtures are normalized at ingestion and contract-check boundaries. `duration` remains `{value, unit, meaning}`. `control_device.invalidated` carries `device_id`, affected interval, reason and optional evidence; only a calibration-system source or the privileged human workflow may create it. Unknown `(event_type, schema_version)` pairs are rejected.

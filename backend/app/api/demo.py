@@ -195,6 +195,13 @@ def reset_demo(
     if not settings.demo_privileged_database_url:
         raise TraceQError("DEMO_RESET_UNAVAILABLE", "Demo reset connection is not configured", 503)
     tables = (
+        "blast_radius_exposures",
+        "approval_requests",
+        "containment_proposals",
+        "blast_radius_queries",
+        "control_device_invalidations",
+        "transport_nonces",
+        "security_alerts",
         "analysis_evidence",
         "analysis_versions",
         "controller_decisions",

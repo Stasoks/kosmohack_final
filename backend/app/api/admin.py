@@ -11,11 +11,13 @@ from sqlalchemy.orm import Session
 from backend.app.errors import NotFoundError, TraceQError
 from backend.app.domain.events import SUPPORTED_EVENT_TYPES
 from backend.app.persistence.database import SessionLocal, get_db
-from backend.app.persistence.models import AuditEntry, EventSource, Role, User
+from backend.app.persistence.models import AuditEntry, CryptoProfile, EventSource, Role, SecurityAlert, User
+from backend.app.security.key_provider import CRYPTO_PROFILES
 from backend.app.projections.rebuild import mark_projection_failed, rebuild_item
 from backend.app.security.audit import write_audit
-from backend.app.security.auth import Principal, require_permission
+from backend.app.security.auth import Principal, require_critical_permission, require_permission
 from backend.app.security.integrity import verify_integrity
+from backend.app.security.checkpoints import create_classic_checkpoint
 from backend.app.security.passwords import hash_password
 from backend.app.security.crypto import token_hash
 from backend.app.security.permissions import ROLE_PERMISSIONS
@@ -43,6 +45,9 @@ class SourceCreate(BaseModel):
     source_type: str = Field(min_length=1, max_length=64)
     allowed_event_types: list[str] = Field(min_length=1)
     token: str | None = Field(default=None, min_length=24, max_length=512)
+    auth_method: str = Field(default="shared_secret_legacy", pattern="^(shared_secret_legacy|HMAC_V1)$")
+    allowed_line_ids: list[str] = Field(default_factory=list)
+    allowed_station_ids: list[str] = Field(default_factory=list)
 
     @field_validator("allowed_event_types")
     @classmethod
@@ -57,6 +62,9 @@ class SourceCreate(BaseModel):
 class SourcePatch(BaseModel):
     enabled: bool | None = None
     allowed_event_types: list[str] | None = Field(default=None, min_length=1)
+    status: str | None = Field(default=None, pattern="^(ACTIVE|SUSPENDED|REVOKED|EXPIRED)$")
+    allowed_line_ids: list[str] | None = None
+    allowed_station_ids: list[str] | None = None
 
     @field_validator("allowed_event_types")
     @classmethod
@@ -171,7 +179,11 @@ def list_sources(
             "source_id": source.source_id,
             "source_type": source.source_type,
             "enabled": source.enabled,
+            "status": source.status,
+            "auth_method": source.auth_method,
             "allowed_event_types": source.allowed_event_types,
+            "allowed_line_ids": source.allowed_line_ids,
+            "allowed_station_ids": source.allowed_station_ids,
             "created_at": source.created_at,
         }
         for source in db.scalars(select(EventSource).order_by(EventSource.source_id)).all()
@@ -193,7 +205,11 @@ def create_source(
         source_type=body.source_type,
         enabled=True,
         token_hash=token_hash(token),
+        status="ACTIVE",
+        auth_method=body.auth_method,
         allowed_event_types=sorted(set(body.allowed_event_types)),
+        allowed_line_ids=sorted(set(body.allowed_line_ids)),
+        allowed_station_ids=sorted(set(body.allowed_station_ids)),
     )
     db.add(source)
     write_audit(
@@ -229,6 +245,12 @@ def patch_source(
         source.enabled = body.enabled
     if body.allowed_event_types is not None:
         source.allowed_event_types = sorted(set(body.allowed_event_types))
+    if body.status is not None:
+        source.status = body.status
+    if body.allowed_line_ids is not None:
+        source.allowed_line_ids = sorted(set(body.allowed_line_ids))
+    if body.allowed_station_ids is not None:
+        source.allowed_station_ids = sorted(set(body.allowed_station_ids))
     write_audit(
         db,
         action="source_update",
@@ -266,6 +288,38 @@ def audit_log(
         }
         for row in rows
     ]
+
+
+@router.get("/security-alerts")
+def security_alerts(
+    limit: int = 200,
+    _: Principal = Depends(require_permission("VERIFY_INTEGRITY")),
+    db: Session = Depends(get_db),
+):
+    rows = db.scalars(select(SecurityAlert).order_by(SecurityAlert.created_at.desc()).limit(min(limit, 1000))).all()
+    return [{"id": row.id, "alert_type": row.alert_type, "severity": row.severity,
+             "source_id": row.source_id, "target_type": row.target_type, "target_id": row.target_id,
+             "details": row.details, "created_at": row.created_at, "resolved_at": row.resolved_at} for row in rows]
+
+
+@router.get("/crypto-profile")
+def crypto_profile(_: Principal = Depends(require_permission("VERIFY_INTEGRITY")), db: Session = Depends(get_db)):
+    active = db.scalar(select(CryptoProfile).where(CryptoProfile.status == "ACTIVE"))
+    profile_id = active.profile_id if active else "CLASSIC_V1"
+    return {"profile_id": profile_id, "algorithms": CRYPTO_PROFILES[profile_id],
+            "pq_available": False, "keys_stored_in_database": False}
+
+
+@router.post("/integrity/checkpoints/{stream_id}")
+def checkpoint(stream_id: str, request: Request,
+               principal: Principal = Depends(require_critical_permission("ROTATE_KEYS")),
+               db: Session = Depends(get_db), settings: Settings = Depends(get_settings)):
+    row = create_classic_checkpoint(db, stream_id, settings)
+    write_audit(db, action="integrity_checkpoint", outcome="success", actor_user_id=principal.user_id,
+                session_id=principal.session_id, target_type="integrity_stream", target_id=stream_id,
+                request_id=request.state.request_id, safe_details={"profile": row.crypto_profile_id, "sequence": row.sequence})
+    db.commit()
+    return {"checkpoint_id": row.id, "profile": row.crypto_profile_id, "sequence": row.sequence}
 
 
 @router.post("/integrity/verify")

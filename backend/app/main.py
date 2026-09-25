@@ -11,9 +11,10 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from sqlalchemy import text
 
-from backend.app.api import admin, analytics, auth, demo, events, integrations, items, nonconformances, routes
+from backend.app.api import admin, analytics, auth, demo, events, integrations, items, nonconformances, risk, routes
 from backend.app.errors import TraceQError
 from backend.app.persistence.database import SessionLocal
+from backend.app.persistence.models import SecurityAlert
 from backend.app.projections.rebuild import recover_stale_projections
 from backend.app.security.audit import write_audit
 from backend.app.settings import get_settings
@@ -78,7 +79,7 @@ async def request_context(request: Request, call_next):
 
 @app.exception_handler(TraceQError)
 async def traceq_error_handler(request: Request, exc: TraceQError):
-    if exc.code == "FORBIDDEN":
+    if exc.code in {"FORBIDDEN", "FRESH_AUTH_REQUIRED", "SESSION_REVOKED"}:
         principal = getattr(request.state, "principal", None)
         db = SessionLocal()
         try:
@@ -92,6 +93,11 @@ async def traceq_error_handler(request: Request, exc: TraceQError):
                 target_id=request.url.path,
                 request_id=getattr(request.state, "request_id", None),
             )
+            db.add(SecurityAlert(
+                alert_type="RBAC_DENIED" if exc.code == "FORBIDDEN" else "CRITICAL_ACTION_DENIED",
+                severity="MEDIUM", target_type="endpoint", target_id=request.url.path,
+                details={"error_code": exc.code},
+            ))
             db.commit()
         finally:
             db.close()
@@ -155,7 +161,7 @@ def ready():
     try:
         db.execute(text("SELECT 1"))
         revision = db.scalar(text("SELECT version_num FROM alembic_version LIMIT 1"))
-        if revision != "20260925_0001":
+        if revision != "20260925_0002":
             return JSONResponse(status_code=503, content={"status": "not_ready", "reason": "migration"})
         return {"status": "ready", "migration": revision, "crypto_profile": "classic-v1"}
     except Exception:
@@ -171,6 +177,7 @@ app.include_router(nonconformances.router)
 app.include_router(routes.router)
 app.include_router(analytics.router)
 app.include_router(integrations.router)
+app.include_router(risk.router)
 app.include_router(admin.router)
 admin.register_demo_routes(app, settings)
 if settings.demo_mode:

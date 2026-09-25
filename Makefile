@@ -4,6 +4,7 @@ install:
 	uv sync --all-groups
 
 test: test-unit
+	@echo "Prefer ./scripts/run_tests.sh all for the complete isolated suite"
 
 test-unit:
 	uv run pytest -m "not postgres"

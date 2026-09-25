@@ -40,6 +40,8 @@ if "VIEW_ANALYTICS" in permissions or "MANAGE_INTEGRATIONS" in permissions:
     pages.append(st.Page(views.guarded(views.data_health), title="Data Health", icon="🩺"))
 if "MANAGE_ROUTES" in permissions:
     pages.append(st.Page(views.guarded(views.route_editor), title="Маршруты", icon="🛤️"))
+if "RUN_BLAST_RADIUS" in permissions:
+    pages.append(st.Page(views.guarded(views.blast_radius), title="Blast Radius", icon="🎯"))
 if "MANAGE_USERS" in permissions:
     pages.append(st.Page(views.guarded(views.admin_panel), title="Администрирование", icon="🔐"))
 if "RUN_DEMO_SCENARIOS" in permissions:

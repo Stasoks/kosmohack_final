@@ -38,6 +38,17 @@ class JsonProductStructureProvider:
         return value
 
 
+class KompasProductStructureProvider:
+    """Vendor boundary only; the Windows/KOMPAS bridge is intentionally external."""
+    def __init__(self, adapter) -> None:
+        self.adapter = adapter
+
+    def load(self) -> dict[str, Any]:
+        if self.adapter is None:
+            raise RuntimeError("KOMPAS structure provider is unavailable")
+        return self.adapter.export_structure()
+
+
 def import_structure(db: Session, provider: ProductStructureProvider) -> StructureImportResult:
     value = provider.load()
     content_hash = sha256_hex(canonical_json_bytes(value))

@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session
 
 from backend.app.errors import ForbiddenError, TraceQError
 from backend.app.persistence.database import get_db
-from backend.app.persistence.models import Permission, RolePermission, User, UserRole
+from backend.app.persistence.models import AuthSession, Permission, RolePermission, User, UserRole
 from backend.app.security.crypto import utcnow
 from backend.app.settings import Settings, get_settings
 
@@ -80,7 +80,10 @@ def current_principal(
     except (jwt.PyJWTError, KeyError, ValueError) as exc:
         raise TraceQError("INVALID_ACCESS_TOKEN", "Access token is invalid or expired", 401) from exc
     user = db.get(User, user_id)
-    if not user or not user.enabled:
+    session = db.get(AuthSession, session_id)
+    now = utcnow()
+    if (not user or not user.enabled or not session or session.user_id != user_id
+            or session.revoked_at is not None or session.expires_at <= now):
         raise TraceQError("INVALID_ACCESS_TOKEN", "Access token is invalid or expired", 401)
     principal = Principal(
         user_id=user.id,
@@ -99,6 +102,22 @@ def require_permission(permission: str):
             raise ForbiddenError(f"Permission {permission} is required")
         return principal
 
+    return dependency
+
+
+def require_critical_permission(permission: str, *, freshness_minutes: int = 30):
+    def dependency(
+        principal: Principal = Depends(current_principal),
+        db: Session = Depends(get_db),
+    ) -> Principal:
+        if permission not in principal.permissions:
+            raise ForbiddenError(f"Permission {permission} is required")
+        session = db.get(AuthSession, principal.session_id)
+        if not session or session.revoked_at is not None or session.expires_at <= utcnow():
+            raise TraceQError("SESSION_REVOKED", "The authenticated session is no longer active", 401)
+        if session.last_authenticated_at < utcnow() - timedelta(minutes=freshness_minutes):
+            raise TraceQError("FRESH_AUTH_REQUIRED", "Fresh authentication is required", 403)
+        return principal
     return dependency
 
 

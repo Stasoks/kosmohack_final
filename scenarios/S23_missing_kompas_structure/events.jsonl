@@ -1,0 +1,1 @@
+{"event_id":"S23-E1","event_type":"item.registered","schema_version":"1.0","occurred_at":"2026-09-25T23:00:00Z","source":{"source_id":"MES-01","source_type":"mes","sequence":2301},"item_id":"ITEM-S23","operation_run_id":null,"payload":{"product_definition_id":"PD-NO-STRUCTURE","revision":"A","route_id":"ROUTE-DEFAULT"}}

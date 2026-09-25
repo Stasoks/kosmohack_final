@@ -40,17 +40,25 @@ def token_hash(token: str) -> str:
 
 
 def build_aad(
-    *, event_id: str, event_type: str, source_id: str, schema_version: str, received_at: datetime
+    *, event_id: str, event_type: str, source_id: str, schema_version: str, received_at: datetime,
+    occurred_at: datetime | None = None, item_id: str | None = None,
+    crypto_key_id: str | None = None, profile: str = "CLASSIC_V1",
 ) -> bytes:
-    return canonical_json_bytes(
-        {
+    value = {
             "event_id": event_id,
             "event_type": event_type,
             "received_at": isoformat_utc(received_at),
             "schema_version": schema_version,
             "source_id": source_id,
-        }
-    )
+    }
+    if profile.upper().replace("-", "_") != "CLASSIC_V1":
+        value.update({
+            "occurred_at": isoformat_utc(occurred_at) if occurred_at else None,
+            "item_id": item_id,
+            "crypto_key_id": crypto_key_id,
+            "crypto_profile": profile,
+        })
+    return canonical_json_bytes(value)
 
 
 def encrypt_event(plaintext: bytes, key: bytes, aad: bytes) -> tuple[bytes, bytes]:

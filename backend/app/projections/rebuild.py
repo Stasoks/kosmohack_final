@@ -14,6 +14,7 @@ from backend.app.persistence.models import (
     AnalysisVersion,
     DefectObservation,
     DefectOccurrence,
+    ControlDeviceInvalidation,
     Item,
     MachineEvent,
     Nonconformance,
@@ -21,6 +22,7 @@ from backend.app.persistence.models import (
     OperationRun,
     OperatorAction,
     ProjectionState,
+    ProductStructureSnapshot,
     RawEvent,
     RouteDefinition,
     RouteRevision,
@@ -48,6 +50,10 @@ def _decrypt(raw: RawEvent, settings: Settings) -> dict[str, Any]:
         source_id=raw.source_id,
         schema_version=raw.schema_version,
         received_at=raw.received_at,
+        occurred_at=raw.occurred_at,
+        item_id=raw.item_id,
+        crypto_key_id=raw.crypto_key_id,
+        profile=raw.crypto_profile_id,
     )
     plaintext = decrypt_event(raw.payload_ciphertext, raw.nonce, settings.aes_key(), aad)
     return json.loads(plaintext)
@@ -181,6 +187,29 @@ def _create_analysis(
     ncr.current_analysis_version = version_number
 
 
+def _create_invalidated_analysis(db: Session, ncr: Nonconformance, observation: dict[str, Any]) -> None:
+    latest = db.scalar(select(AnalysisVersion).where(
+        AnalysisVersion.nonconformance_id == ncr.id
+    ).order_by(AnalysisVersion.version.desc()).limit(1))
+    if latest and latest.status == "EVIDENCE_INVALIDATED":
+        return
+    version = AnalysisVersion(
+        nonconformance_id=ncr.id, item_id=ncr.item_id,
+        version=(latest.version + 1) if latest else 1, status="EVIDENCE_INVALIDATED",
+        defect_type=ncr.defect_type, component_instance_id=ncr.component_instance_id,
+        left_boundary_at=None, right_boundary_at=None, reason="control_device_invalidation",
+    )
+    db.add(version); db.flush()
+    db.add(AnalysisEvidence(
+        analysis_version_id=version.id, evidence_type="DEVICE_VALIDITY", evidence_role="LIMITATION",
+        source_event_id=observation.get("event_id"), source_entity_type="raw_event",
+        source_entity_id=observation.get("event_id"), occurred_at=observation.get("occurred_at"),
+        details={"trust_status": "INVALIDATED", "control_device_id": observation.get("control_device_id"),
+                 "reasons": observation.get("trust_reasons", [])},
+    ))
+    ncr.current_analysis_version = version.version
+
+
 def rebuild_item(db: Session, item_id: str, settings: Settings) -> None:
     state = db.get(ProjectionState, item_id)
     if state is None:
@@ -218,18 +247,20 @@ def rebuild_item(db: Session, item_id: str, settings: Settings) -> None:
         if raw.event_type == "item.registered":
             item_value = {**payload, "registered_at": raw.occurred_at}
         elif raw.event_type == "operation.started":
-            run = operation_values.setdefault(payload["operation_run_id"], {})
+            run = operation_values.setdefault(raw.operation_run_id, {})
             run.update(
                 {
                     **payload,
+                    "item_id": raw.item_id,
+                    "operation_run_id": raw.operation_run_id,
                     "started_at": raw.occurred_at,
                     "source_event_id": raw.event_id,
                 }
             )
         elif raw.event_type == "operation.finished":
             run = operation_values.setdefault(
-                payload["operation_run_id"],
-                {"item_id": item_id, "operation_run_id": payload["operation_run_id"]},
+                raw.operation_run_id,
+                {"item_id": item_id, "operation_run_id": raw.operation_run_id},
             )
             run.update(
                 {
@@ -242,10 +273,17 @@ def rebuild_item(db: Session, item_id: str, settings: Settings) -> None:
             )
         elif raw.event_type == "inspection.result":
             policy = _trust_policy(db, payload["control_point_id"])
-            trust = evaluate_trust(payload, policy)
+            invalidated = bool(payload.get("control_device_id") and db.scalar(select(ControlDeviceInvalidation.id).where(
+                ControlDeviceInvalidation.device_id == payload.get("control_device_id"),
+                ControlDeviceInvalidation.affected_from <= raw.occurred_at,
+                ControlDeviceInvalidation.affected_to >= raw.occurred_at,
+            ).limit(1)))
+            trust = evaluate_trust(payload, policy, invalidated=invalidated)
             observation_values.append(
                 {
                     **payload,
+                    "item_id": raw.item_id,
+                    "operation_run_id": raw.operation_run_id,
                     "event_id": raw.event_id,
                     "occurred_at": raw.occurred_at,
                     "trust_status": trust.status,
@@ -253,14 +291,16 @@ def rebuild_item(db: Session, item_id: str, settings: Settings) -> None:
                 }
             )
         elif raw.event_type == "machine.state":
-            machine_values.append({**payload, "event_id": raw.event_id, "occurred_at": raw.occurred_at})
+            machine_values.append({**payload, "item_id": raw.item_id, "operation_run_id": raw.operation_run_id, "event_id": raw.event_id, "occurred_at": raw.occurred_at})
         elif raw.event_type == "operator.action":
-            action_values.append({**payload, "event_id": raw.event_id, "occurred_at": raw.occurred_at})
+            action_values.append({**payload, "item_id": raw.item_id, "operation_run_id": raw.operation_run_id, "event_id": raw.event_id, "occurred_at": raw.occurred_at})
 
     # Equal-time, equal-control-point observations with opposing results are not causal tie-breaks.
     groups: dict[tuple[Any, ...], list[dict[str, Any]]] = {}
     for obs in observation_values:
-        key = (obs["occurred_at"], obs["control_point_id"], obs.get("component_instance_id"))
+        session = obs.get("capture_session_id")
+        bucket = int(obs["occurred_at"].timestamp() // 300)
+        key = (session or bucket, obs["control_point_id"], obs.get("component_instance_id"))
         groups.setdefault(key, []).append(obs)
     for group in groups.values():
         if len({obs["inspection_result"] for obs in group}) > 1:
@@ -278,10 +318,18 @@ def rebuild_item(db: Session, item_id: str, settings: Settings) -> None:
     item = db.get(Item, item_id)
     if item_value:
         route_revision_id = item.route_revision_id if item else None
-        if not route_revision_id and item_value.get("route_id"):
-            route = db.scalar(select(RouteDefinition).where(RouteDefinition.code == item_value["route_id"]))
-            route_revision_id = route.active_revision_id if route else None
+        if not route_revision_id:
+            route = db.scalar(select(RouteDefinition).where(RouteDefinition.code == (item_value.get("route_id") or "ROUTE-DEFAULT")))
+            if route and item_value.get("route_revision"):
+                revision = db.scalar(select(RouteRevision).where(RouteRevision.route_id == route.id, RouteRevision.revision == item_value["route_revision"]))
+                route_revision_id = revision.id if revision else None
+            elif route:
+                route_revision_id = route.active_revision_id
         if item is None:
+            structure_available = bool(db.scalar(select(ProductStructureSnapshot.id).where(
+                ProductStructureSnapshot.assembly_id == item_value["product_definition_id"],
+                ProductStructureSnapshot.revision == item_value["revision"],
+            ).limit(1)))
             item = Item(
                 item_id=item_id,
                 product_definition_id=item_value["product_definition_id"],
@@ -289,6 +337,7 @@ def rebuild_item(db: Session, item_id: str, settings: Settings) -> None:
                 line_id=item_value.get("line_id"),
                 route_revision_id=route_revision_id,
                 registered_at=item_value["registered_at"],
+                structure_status="available" if structure_available else "degraded",
             )
             db.add(item)
         else:
@@ -314,7 +363,7 @@ def rebuild_item(db: Session, item_id: str, settings: Settings) -> None:
                 duration_meaning=duration.get("meaning"),
                 previous_operation_run_id=run.get("previous_operation_run_id"),
                 run_reason=run.get("run_reason", "production"),
-                rework_for_nonconformance_id=run.get("rework_for_nonconformance_id"),
+                rework_for_nonconformance_id=(uuid.UUID(run["rework_for_nonconformance_id"]) if run.get("rework_for_nonconformance_id") else None),
                 parameters=run.get("parameters") or run.get("finish_parameters"),
             )
         )
@@ -440,6 +489,8 @@ def rebuild_item(db: Session, item_id: str, settings: Settings) -> None:
                     action_values,
                     limitations,
                 )
+            elif obs["trust_status"] == "INVALIDATED" and ncr.current_analysis_version:
+                _create_invalidated_analysis(db, ncr, obs)
 
     state.latest_raw_ingest_seq = max(raw.ingest_seq for raw in raws)
     state.last_projected_ingest_seq = state.latest_raw_ingest_seq

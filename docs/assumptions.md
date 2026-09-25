@@ -10,3 +10,7 @@
 - Fixture adapters are not claims of compatibility with an unknown customer installation; real endpoints, auth, schemas, and TLS roots must be supplied during site integration.
 - The demo profile exposes localhost API/ERP/PostgreSQL debug ports. Production-like Compose keeps the DB internal and requires an HTTPS boundary.
 - Evidence invalidation and blast-radius automation are planned score-boost extensions after the stable P0 path; their event/model boundaries are documented in the master plan but are not misrepresented as completed industrial functions.
+
+## Prepared, not executed
+
+The implementation includes migrations, unit/PostgreSQL/security/scenario tests, Compose profiles, CI and benchmark tools. They were intentionally not executed by the implementation agent. The HMAC_V1 demo transport is not an mTLS replacement; PQ checkpoint support is optional; vendor KOMPAS/ERP bridges remain site-specific adapters.

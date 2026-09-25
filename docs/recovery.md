@@ -24,3 +24,7 @@ After restore:
 5. Run S01/S03 in a separate demo database, not against restored production evidence.
 
 Restore is destructive to the target database. The script requires `TRACEQ_RESTORE_CONFIRM=YES` and should run only after a fresh target backup and explicit operator review.
+
+## Extended recovery
+
+On startup, stale projections are rebuilt from encrypted raw facts under per-item advisory locks. Device invalidation marks affected projections stale. Outbox delivery uses `FOR UPDATE SKIP LOCKED`, stable IDs, exponential backoff, ACK correlation and permanent failure state. Session and nonce facts are not cleared during projection rebuild.

@@ -94,7 +94,8 @@ def test_demo_vertical_slice_security_and_outbox() -> None:
         },
     )
     assert decision.status_code == 200, decision.text
-    assert decision.json()["outbox_state"] == "PENDING"
+    assert decision.json()["outbox_state"] is None
+    assert decision.json()["message_id"] is None
 
     with engine.connect() as connection:
         ciphertext = connection.scalar(
@@ -102,11 +103,8 @@ def test_demo_vertical_slice_security_and_outbox() -> None:
         )
         assert ciphertext is not None
         assert b"ITEM-S03" not in bytes(ciphertext)
-        outbox_count = connection.scalar(
-            text("SELECT count(*) FROM outbox_messages WHERE message_id=:message_id"),
-            {"message_id": decision.json()["message_id"]},
-        )
-        assert outbox_count == 1
+        outbox_count = connection.scalar(text("SELECT count(*) FROM outbox_messages"))
+        assert outbox_count == 0  # defect/rework signals never bypass controlled release
 
     with pytest.raises(DBAPIError):
         with engine.begin() as connection:

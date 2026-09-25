@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 
 from backend.app.errors import TraceQError
 from backend.app.persistence.database import get_db
-from backend.app.persistence.models import RefreshToken, User
+from backend.app.persistence.models import AuthSession, RefreshToken, User
 from backend.app.security.audit import write_audit
 from backend.app.security.auth import (
     Principal,
@@ -37,6 +37,16 @@ class TokenRequest(BaseModel):
 
 def _token_response(db: Session, user: User, settings: Settings, session_id: uuid.UUID | None = None):
     session_id = session_id or uuid.uuid4()
+    session = db.get(AuthSession, session_id)
+    session_expiry = utcnow() + timedelta(hours=settings.refresh_token_ttl_hours)
+    if session is None:
+        session = AuthSession(
+            id=session_id, user_id=user.id, last_authenticated_at=utcnow(), expires_at=session_expiry
+        )
+        db.add(session)
+    else:
+        session.last_authenticated_at = utcnow()
+        session.expires_at = session_expiry
     access, expires_in = create_access_token(user, session_id, settings)
     raw_refresh = create_refresh_token()
     record = RefreshToken(
@@ -145,7 +155,14 @@ def logout(body: TokenRequest, request: Request, db: Session = Depends(get_db)):
     hashed = token_hash(body.refresh_token)
     record = db.scalar(select(RefreshToken).where(RefreshToken.token_hash == hashed).with_for_update())
     if record and not record.revoked_at:
-        record.revoked_at = utcnow()
+        now = utcnow()
+        record.revoked_at = now
+        session = db.get(AuthSession, record.session_id)
+        if session and session.revoked_at is None:
+            session.revoked_at = now
+        for sibling in db.scalars(select(RefreshToken).where(RefreshToken.session_id == record.session_id)).all():
+            if sibling.revoked_at is None:
+                sibling.revoked_at = now
         write_audit(
             db,
             action="logout",

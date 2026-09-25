@@ -8,6 +8,7 @@ from sqlalchemy import select
 from backend.app.persistence.database import SessionLocal
 from backend.app.persistence.models import (
     ComponentDefinition,
+    CryptoProfile,
     Equipment,
     EventSource,
     IntegrationHealth,
@@ -226,6 +227,7 @@ def seed() -> None:
                 "VISION-02": ("vision_qc", ["inspection.result"]),
                 "MACHINE-01": ("machine_logs", ["machine.state"]),
                 "OPERATOR-01": ("operator_vision", ["operator.action"]),
+                "CALIBRATION-01": ("calibration_system", ["control_device.invalidated"]),
             }
             for number in range(1, 11):
                 sources[f"LOAD-MES-{number:02d}"] = ("mes", ["item.registered"])
@@ -237,12 +239,15 @@ def seed() -> None:
                             source_id=source_id,
                             source_type=source_type,
                             enabled=True,
+                            status="ACTIVE",
+                            auth_method="HMAC_V1" if source_id == "CALIBRATION-01" else "shared_secret_legacy",
                             token_hash=token_hash(token),
                             allowed_event_types=allowed,
                         )
                     )
                 else:
                     source.enabled = True
+                    source.status = "ACTIVE"
                     source.allowed_event_types = allowed
                     source.token_hash = token_hash(token)
         _get_or_create(
@@ -251,6 +256,11 @@ def seed() -> None:
             defaults={"status": "UNKNOWN"},
             integration_id="erp-emulator",
         )
+        classic = db.get(CryptoProfile, "CLASSIC_V1")
+        if classic is None:
+            db.add(CryptoProfile(profile_id="CLASSIC_V1", status="ACTIVE",
+                                 algorithms={"encryption": "AES-256-GCM", "integrity": "HMAC-SHA256", "checkpoint": "ECDSA-P256"},
+                                 activated_at=utcnow()))
         db.commit()
     finally:
         db.close()

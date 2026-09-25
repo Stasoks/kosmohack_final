@@ -11,3 +11,7 @@ The technologist can create/import a route, clone its ordered step array into a 
 Activation makes the revision immutable and supersedes the former active revision. Registration resolves the active revision once and stores it on the item. Later route changes do not alter an already started item.
 
 If a following route operation starts without the required preceding inspection, replay adds `MISSING_CHECK` as analysis limitation. It never fabricates an inspection event.
+
+## Revision pinning
+
+Registration selects an explicitly requested revision or the route's then-active revision. `Item.route_revision_id` is thereafter fixed. Activation is a fresh-session critical action with audit; activated historical revision content is protected by a database trigger.

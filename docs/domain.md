@@ -21,3 +21,7 @@ Multiple observations of the same physical defect link to an open `DefectOccurre
 - containment: `NONE`, `HOLD`, `REINSPECTION_REQUIRED`, or `REVIEW_REQUIRED`.
 
 Rework is a new `OperationRun` with `run_reason=rework`, `previous_operation_run_id`, and `rework_for_nonconformance_id`. It never erases the original NCR. Release requires a controller decision; a new defect type creates a new occurrence/NCR.
+
+## Extended entities
+
+`AuthSession`, `TransportNonce`, `SecurityAlert`, `ControlDeviceInvalidation`, `BlastRadiusQuery`, `BlastRadiusExposure`, `ApprovalRequest`, `CryptoProfile`, and `IntegrityCheckpoint` extend the baseline model. NCR resolution is explicit through `resolution_type`, `resolved_at`, `verification_decision_id`, and `verification_status`; original occurrences and decisions remain immutable history.

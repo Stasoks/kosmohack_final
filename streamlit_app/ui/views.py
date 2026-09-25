@@ -50,7 +50,7 @@ def overview() -> None:
 def pending_reviews() -> None:
     header("Ожидают решения")
     rows = request("GET", "/api/v1/nonconformances")
-    pending = [row for row in rows if row["verdict"] in {"pending_review", "needs_extra_check"}]
+    pending = [row for row in rows if row["verdict"] in {"pending_review", "needs_extra_check"} or row.get("verification_status") == "PENDING"]
     st.dataframe(pending, use_container_width=True, hide_index=True)
     if not pending:
         st.info("Нет несоответствий, ожидающих решения.")
@@ -92,6 +92,13 @@ def pending_reviews() -> None:
                 json={"reason": extra_reason, "control_point_id": control_point or None},
             )
             st.success("Дополнительный контроль запрошен")
+    if card.get("verification_status") == "PENDING":
+        with st.form("verify_rework"):
+            passed = st.checkbox("Повторный контроль подтверждает устранение дефекта")
+            verification_reason = st.text_area("Обоснование верификации")
+            if st.form_submit_button("Зафиксировать верификацию"):
+                st.json(request("POST", f"/api/v1/nonconformances/{selected}/verify-rework",
+                                json={"passed": passed, "reason": verification_reason}))
 
 
 def timeline() -> None:
@@ -160,7 +167,12 @@ def route_editor() -> None:
             ensure_ascii=False,
             indent=2,
         )
-        steps_text = st.text_area("Шаги новой revision (JSON, порядок массива = порядок операций)", default_json, height=300)
+        st.caption("Таблица поддерживает добавление и удаление строк; позиция задаёт порядок.")
+        editable = [{"position": i + 1, "operation_id": step["operation_id"], "operation_name": step["operation_name"],
+                     "control_point_id": step["control_point_id"], "required": step["required"]} for i, step in enumerate(base)]
+        edited = st.data_editor(editable, num_rows="dynamic", use_container_width=True, key="route_steps")
+        edited = sorted(edited, key=lambda row: row.get("position", 0))
+        steps_text = json.dumps([{k: v for k, v in row.items() if k != "position"} for row in edited], ensure_ascii=False)
         if st.button("Клонировать и сохранить новую revision"):
             result = request(
                 "POST", f"/api/v1/routes/{route['id']}/revisions", json={"steps": json.loads(steps_text)}
@@ -170,8 +182,9 @@ def route_editor() -> None:
         draft_ids = [revision["id"] for revision in revisions if revision["status"] == "draft"]
         if draft_ids:
             draft = st.selectbox("Draft revision", draft_ids)
+            activation_reason = st.text_input("Причина активации")
             if st.button("Активировать"):
-                request("POST", f"/api/v1/routes/{route['id']}/activate", params={"revision_id": draft})
+                request("POST", f"/api/v1/routes/{route['id']}/activate", params={"revision_id": draft, "reason": activation_reason})
                 st.success("Revision активирована")
                 st.rerun()
     with st.expander("Импорт маршрута JSON"):
@@ -182,7 +195,7 @@ def route_editor() -> None:
 
 def admin_panel() -> None:
     header("Администрирование")
-    tabs = st.tabs(["Пользователи", "Источники", "Интеграции", "Аудит", "Целостность"])
+    tabs = st.tabs(["Пользователи", "Источники", "Интеграции", "Аудит", "Целостность", "Security Alerts"])
     with tabs[0]:
         st.dataframe(request("GET", "/api/v1/admin/users"), use_container_width=True, hide_index=True)
     with tabs[1]:
@@ -194,6 +207,7 @@ def admin_panel() -> None:
     with tabs[3]:
         st.dataframe(request("GET", "/api/v1/admin/audit"), use_container_width=True, hide_index=True)
     with tabs[4]:
+        st.json(request("GET", "/api/v1/admin/crypto-profile"), expanded=False)
         if st.button("Verify Integrity", type="primary"):
             result = request("POST", "/api/v1/admin/integrity/verify")
             (st.success if result["status"] == "OK" else st.error)(result["status"])
@@ -201,6 +215,25 @@ def admin_panel() -> None:
         item_id = st.text_input("Item ID для replay")
         if st.button("Rebuild") and item_id:
             st.json(request("POST", f"/api/v1/admin/rebuild/{item_id}"))
+    with tabs[5]:
+        st.dataframe(request("GET", "/api/v1/admin/security-alerts"), use_container_width=True, hide_index=True)
+
+
+def blast_radius() -> None:
+    header("Blast Radius и containment proposal")
+    with st.form("blast_radius"):
+        factor_type = st.selectbox("Фактор", ["equipment", "tool", "material_lot", "control_device", "component", "time_interval"])
+        factor_value = st.text_input("ID / значение")
+        affected_from = st.text_input("Начало ISO-8601")
+        affected_to = st.text_input("Конец ISO-8601")
+        action = st.selectbox("Предложение", ["REVIEW_REQUIRED", "REINSPECTION_REQUIRED", "HOLD"])
+        rationale = st.text_area("Обоснование")
+        if st.form_submit_button("Рассчитать и создать proposal"):
+            result = request("POST", "/api/v1/risk/blast-radius", json={"factor_type": factor_type,
+                "factor_value": factor_value, "affected_from": affected_from, "affected_to": affected_to,
+                "proposed_action": action, "rationale": rationale})
+            st.warning("Расчёт сам по себе не создаёт дефект и не применяет HOLD.")
+            st.json(result)
 
 
 def scenario_runner() -> None:
