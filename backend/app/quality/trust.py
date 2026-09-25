@@ -66,8 +66,10 @@ def scope_covers(
     components = inspection_scope.get("component_instance_ids", inspection_scope.get("components", ["*"]))
     defect_ok = "*" in defects or defect_type in defects
     if component_instance_id is None:
-        # Item-level/unknown-component defects need item-wide component coverage.
-        component_ok = "*" in components
+        # In degraded item-level mode an empty component list means that no
+        # component structure is available, so the inspection applies at item level.
+        # An explicit non-empty component list remains narrower than item level.
+        component_ok = not components or "*" in components
     else:
         component_ok = "*" in components or component_instance_id in components
     return defect_ok and component_ok
