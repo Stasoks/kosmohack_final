@@ -51,7 +51,7 @@ def test_demo_vertical_slice_security_and_outbox() -> None:
     reset = client.post("/api/v1/demo/reset", headers=_headers(tokens["controller"]))
     assert reset.status_code == 200, reset.text
     scenario = client.post(
-        "/api/v1/demo/scenarios/S03_new_defect/run",
+        "/api/v1/demo/scenarios/S03/run",
         headers=_headers(tokens["controller"]),
     )
     assert scenario.status_code == 200, scenario.text
