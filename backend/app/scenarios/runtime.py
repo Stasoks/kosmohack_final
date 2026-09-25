@@ -871,7 +871,7 @@ class ScenarioRuntime:
             "must_not_include": sorted(
                 set(self.db.scalars(select(BlastRadiusExposure.item_id)).all())
             ),
-            "automatic_defect_assignment": False,
+            "automatic_defect_assignment": bool(ncrs) if self.analysis_result else False,
             "automatic_containment_application": (
                 (self.db.scalar(select(func.count(ContainmentApplication.id))) or 0) > 0
             ),
