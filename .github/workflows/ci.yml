@@ -35,8 +35,8 @@ jobs:
     env:
       ENVIRONMENT: test
       RUN_POSTGRES_TESTS: "1"
-      TRACEQ_TEST_DATABASE_URL: postgresql+psycopg://traceq_test:traceq_test@localhost:5432/traceq_test
-      DATABASE_URL: postgresql+psycopg://traceq_test:traceq_test@localhost:5432/traceq_test
+      TRACEQ_TEST_DATABASE_URL: postgresql+psycopg://traceq_app:traceq_app@localhost:5432/traceq_test
+      DATABASE_URL: postgresql+psycopg://traceq_app:traceq_app@localhost:5432/traceq_test
       MIGRATION_DATABASE_URL: postgresql+psycopg://traceq_test:traceq_test@localhost:5432/traceq_test
       JWT_SIGNING_SECRET: test-jwt-secret-at-least-32-bytes-long
       AES_DATA_KEY_B64: MDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDA=
@@ -46,5 +46,13 @@ jobs:
       - uses: actions/setup-python@v5
         with: {python-version: "3.12"}
       - run: python -m pip install . pytest==8.4.2 jsonschema==4.25.1 datamodel-code-generator==0.33.0
+      - name: Create runtime database role
+        env:
+          PGPASSWORD: traceq_test
+        run: |
+          psql -h localhost -U traceq_test -d traceq_test -v ON_ERROR_STOP=1 <<\'SQL\'
+          DO $ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='traceq_app') THEN CREATE ROLE traceq_app LOGIN PASSWORD 'traceq_app'; END IF; END $;
+          GRANT CONNECT ON DATABASE traceq_test TO traceq_app;
+          SQL
       - run: alembic upgrade head
       - run: pytest -m postgres backend/tests
