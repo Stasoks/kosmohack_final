@@ -5,6 +5,7 @@ from types import SimpleNamespace
 
 from backend.app.quality.birth_window import EvidenceValue, calculate_birth_window
 from backend.app.quality.occurrence import can_link_occurrence, defect_key
+from backend.app.quality.rework import repeat_good_covers_nonconformance
 from backend.app.quality.trust import TrustPolicyValue, evaluate_trust, scope_covers
 
 
@@ -114,3 +115,45 @@ def test_defect_occurrence_linking_rule() -> None:
         occurrence, item_id="ITEM-1", defect_type="burr", component_instance_id="C1"
     )
     assert defect_key("ITEM-1", "scratch", None) == ("ITEM-1", "scratch")
+
+
+def test_rework_good_must_cover_original_defect_scope() -> None:
+    broad_good = SimpleNamespace(
+        inspection_result="no_defect",
+        trust_status="TRUSTED",
+        component_instance_id=None,
+        inspection_scope={"defect_types": ["surface_crack"], "component_instance_ids": ["C1"]},
+    )
+    wrong_defect = SimpleNamespace(
+        inspection_result="no_defect",
+        trust_status="TRUSTED",
+        component_instance_id="C1",
+        inspection_scope={"defect_types": ["scratch_or_gouge"], "component_instance_ids": ["C1"]},
+    )
+    wrong_component = SimpleNamespace(
+        inspection_result="no_defect",
+        trust_status="TRUSTED",
+        component_instance_id="C2",
+        inspection_scope={"defect_types": ["surface_crack"], "component_instance_ids": ["C2"]},
+    )
+    assert repeat_good_covers_nonconformance(
+        broad_good, defect_type="surface_crack", component_instance_id="C1"
+    )
+    assert not repeat_good_covers_nonconformance(
+        wrong_defect, defect_type="surface_crack", component_instance_id="C1"
+    )
+    assert not repeat_good_covers_nonconformance(
+        wrong_component, defect_type="surface_crack", component_instance_id="C1"
+    )
+
+
+def test_item_level_ncr_is_not_cleared_by_component_only_good() -> None:
+    component_only = SimpleNamespace(
+        inspection_result="no_defect",
+        trust_status="TRUSTED",
+        component_instance_id="C1",
+        inspection_scope={"defect_types": ["surface_crack"], "component_instance_ids": ["C1"]},
+    )
+    assert not repeat_good_covers_nonconformance(
+        component_only, defect_type="surface_crack", component_instance_id=None
+    )
