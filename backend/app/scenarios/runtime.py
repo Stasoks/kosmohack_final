@@ -945,7 +945,7 @@ class ScenarioRuntime:
             actual["component_structure"] = (
                 "unavailable" if item.structure_status == "degraded" else "available"
             )
-            actual["workflow_blocked"] = False
+            actual["workflow_blocked"] = not bool(ncrs and birth_windows)
         if len(ncrs) == 1:
             ncr = ncrs[0]
             alias = next(
