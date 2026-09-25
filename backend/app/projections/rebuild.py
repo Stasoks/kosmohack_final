@@ -389,6 +389,7 @@ def rebuild_item(db: Session, item_id: str, settings: Settings) -> None:
             )
         )
     observation_ids: dict[str, uuid.UUID] = {}
+    pending_defects: list[tuple[uuid.UUID, dict[str, Any], dict[str, Any]]] = []
     for value in observation_values:
         obs_id = uuid.uuid5(OBSERVATION_NAMESPACE, value["event_id"])
         observation_ids[value["event_id"]] = obs_id
@@ -413,17 +414,24 @@ def rebuild_item(db: Session, item_id: str, settings: Settings) -> None:
             )
         )
         for defect in value.get("defects", []):
-            db.add(
-                DefectObservation(
-                    observation_id=obs_id,
-                    item_id=item_id,
-                    defect_type=defect["defect_type"],
-                    component_instance_id=defect.get("component_instance_id")
-                    or value.get("component_instance_id"),
-                    description=defect.get("description"),
-                    severity=defect.get("severity"),
-                )
+            pending_defects.append((obs_id, value, defect))
+
+    # Flush parent observations first. Rebuilds use deterministic observation UUIDs and
+    # bulk-delete the previous projection, so relying on implicit UoW ordering here can
+    # race the FK on defect_observations during repeated rebuilds.
+    db.flush()
+    for obs_id, value, defect in pending_defects:
+        db.add(
+            DefectObservation(
+                observation_id=obs_id,
+                item_id=item_id,
+                defect_type=defect["defect_type"],
+                component_instance_id=defect.get("component_instance_id")
+                or value.get("component_instance_id"),
+                description=defect.get("description"),
+                severity=defect.get("severity"),
             )
+        )
     for value in machine_values:
         db.add(
             MachineEvent(

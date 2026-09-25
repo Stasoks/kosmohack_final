@@ -99,7 +99,7 @@ def test_demo_vertical_slice_security_and_outbox() -> None:
 
     with engine.connect() as connection:
         ciphertext = connection.scalar(
-            text("SELECT payload_ciphertext FROM raw_events WHERE event_id='S03-E01'")
+            text("SELECT payload_ciphertext FROM raw_events WHERE event_id='EV-S03-001'")
         )
         assert ciphertext is not None
         assert b"ITEM-S03" not in bytes(ciphertext)
@@ -109,5 +109,5 @@ def test_demo_vertical_slice_security_and_outbox() -> None:
     with pytest.raises(DBAPIError):
         with engine.begin() as connection:
             connection.execute(
-                text("UPDATE raw_events SET event_type='tampered' WHERE event_id='S03-E01'")
+                text("UPDATE raw_events SET event_type='tampered' WHERE event_id='EV-S03-001'")
             )
