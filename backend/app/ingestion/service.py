@@ -18,7 +18,6 @@ from backend.app.domain.events import (
 )
 from backend.app.errors import TraceQError
 from backend.app.persistence.models import (
-    AuditEntry,
     ControlDeviceInvalidation,
     Equipment,
     EventSource,
@@ -44,6 +43,7 @@ from backend.app.security.crypto import (
     token_hash,
     utcnow,
 )
+from backend.app.security.audit import write_audit
 from backend.app.settings import Settings
 
 
@@ -279,14 +279,13 @@ def ingest_event(
         )
         if status == "conflict":
             _alert(db, "EVENT_ID_CONFLICT", source.source_id, event.event_id)
-            db.add(
-                AuditEntry(
-                    action="event_id_conflict",
-                    outcome="detected",
-                    target_type="raw_event",
-                    target_id=event.event_id,
-                    safe_details={"source_id": source.source_id},
-                )
+            write_audit(
+                db,
+                action="event_id_conflict",
+                outcome="detected",
+                target_type="raw_event",
+                target_id=event.event_id,
+                safe_details={"source_id": source.source_id},
             )
         db.commit()
         if status == "conflict":
@@ -364,7 +363,7 @@ def ingest_event(
         if projection is None:
             projection = ProjectionState(item_id=event.item_id)
             db.add(projection)
-        projection.latest_raw_ingest_seq = max(projection.latest_raw_ingest_seq, raw.ingest_seq)
+        projection.latest_raw_ingest_seq = max(projection.latest_raw_ingest_seq or 0, raw.ingest_seq)
         projection.status = "stale"
     affected_items: set[str] = set()
     if event.event_type == "control_device.invalidated":
