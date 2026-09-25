@@ -188,7 +188,8 @@ def activate_revision(
 @router.post("/import")
 def import_route(
     body: RouteImport,
-    principal: Principal = Depends(require_permission("MANAGE_ROUTES")),
+    request: Request,
+    principal: Principal = Depends(require_critical_permission("MANAGE_ROUTES")),
     db: Session = Depends(get_db),
 ):
     route = db.scalar(select(RouteDefinition).where(RouteDefinition.code == body.code))
@@ -198,9 +199,17 @@ def import_route(
         db.flush()
     revision = _create_revision(db, route, body.steps, principal)
     if body.activate:
+        if route.active_revision_id and route.active_revision_id != revision.id:
+            old_revision = db.get(RouteRevision, route.active_revision_id)
+            if old_revision:
+                old_revision.status = "superseded"
         revision.status = "active"
         revision.immutable_after = utcnow()
         route.active_revision_id = revision.id
+    write_audit(db, action="route_import", outcome="success", actor_user_id=principal.user_id,
+                session_id=principal.session_id, target_type="route", target_id=str(route.id),
+                request_id=request.state.request_id,
+                safe_details={"code": body.code, "revision": revision.revision, "activated": body.activate})
     db.commit()
     return {"route_id": route.id, "revision_id": revision.id}
 
