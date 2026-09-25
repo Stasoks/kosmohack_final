@@ -10,6 +10,7 @@ from backend.app.errors import TraceQError
 class StepInput(BaseModel):
     operation_id: str = Field(min_length=1, max_length=128)
     operation_name: str = Field(min_length=1, max_length=255)
+    station_id: str | None = Field(default=None, max_length=128)
     control_point_id: str | None = Field(default=None, max_length=128)
     required: bool = False
     inspection_scope: dict | list | None = None
