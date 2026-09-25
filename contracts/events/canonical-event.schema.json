@@ -347,7 +347,8 @@
           "enum": [
             "production",
             "rework"
-          ]
+          ],
+          "default": "production"
         },
         "rework_for_nonconformance_id": {
           "type": [
@@ -441,13 +442,15 @@
           "type": "array",
           "items": {
             "$ref": "#/$defs/defect"
-          }
+          },
+          "default": []
         },
         "evidence_refs": {
           "type": "array",
           "items": {
             "type": "string"
-          }
+          },
+          "default": []
         },
         "component_instance_id": {
           "type": [
@@ -559,7 +562,8 @@
           "items": {
             "type": "string"
           },
-          "maxItems": 100
+          "maxItems": 100,
+          "default": []
         }
       }
     }

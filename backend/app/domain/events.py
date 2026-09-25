@@ -64,7 +64,8 @@ def validate_event(value: Any) -> EventEnvelope:
     if (event_type, version) not in SCHEMA_REGISTRY:
         raise TraceQError("UNSUPPORTED_SCHEMA_VERSION", "Unsupported event schema version", 422)
     candidate = _normalize_legacy(value)
-    duration = candidate.get("payload", {}).get("duration")
+    payload = candidate.get("payload", {})
+    duration = payload.get("duration")
     if event_type == "operation.finished" and isinstance(duration, dict):
         duration_value = duration.get("value")
         if isinstance(duration_value, (int, float)) and not isinstance(duration_value, bool) and duration_value < 0:
@@ -73,6 +74,33 @@ def validate_event(value: Any) -> EventEnvelope:
                 "Operation duration cannot be negative",
                 422,
             )
+    if event_type == "inspection.result":
+        defects = payload.get("defects") or []
+        if payload.get("inspection_result") == "defect_detected" and not defects:
+            raise TraceQError(
+                "SEMANTIC_VALIDATION_ERROR",
+                "defects must not be empty for defect_detected",
+                422,
+            )
+        if payload.get("inspection_result") != "defect_detected" and defects:
+            raise TraceQError(
+                "SEMANTIC_VALIDATION_ERROR",
+                "defects are only allowed for defect_detected",
+                422,
+            )
+    if event_type == "control_device.invalidated":
+        affected_from = payload.get("affected_from")
+        affected_to = payload.get("affected_to")
+        if affected_from is not None and affected_to is not None:
+            from datetime import datetime as _datetime
+            left = _datetime.fromisoformat(str(affected_from).replace("Z", "+00:00"))
+            right = _datetime.fromisoformat(str(affected_to).replace("Z", "+00:00"))
+            if right < left:
+                raise TraceQError(
+                    "SEMANTIC_VALIDATION_ERROR",
+                    "affected_to must not be before affected_from",
+                    422,
+                )
     try:
         candidate["payload"] = PAYLOAD_MODELS[event_type].model_validate(candidate.get("payload"))
         return EventEnvelope.model_validate(candidate)
