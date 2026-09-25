@@ -25,7 +25,7 @@ services:
       MIGRATION_DATABASE_URL: postgresql+psycopg://traceq_test:traceq_test@postgres-test:5432/traceq_test
       DATABASE_URL: postgresql+psycopg://traceq_test:traceq_test@postgres-test:5432/traceq_test
       JWT_SIGNING_SECRET: test-jwt-secret-at-least-32-bytes-long
-      AES_DATA_KEY_B64: MDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDA=
+      AES_DATA_KEY_B64: MDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDA=
       INTEGRITY_HMAC_KEY_B64: MTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTE=
     command: ["alembic", "upgrade", "head"]
     depends_on:
@@ -41,7 +41,7 @@ services:
       TRACEQ_TEST_DATABASE_URL: postgresql+psycopg://traceq_app:traceq_app@postgres-test:5432/traceq_test
       DATABASE_URL: postgresql+psycopg://traceq_app:traceq_app@postgres-test:5432/traceq_test
       JWT_SIGNING_SECRET: test-jwt-secret-at-least-32-bytes-long
-      AES_DATA_KEY_B64: MDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDA=
+      AES_DATA_KEY_B64: MDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDA=
       INTEGRITY_HMAC_KEY_B64: MTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTE=
     command: ["./scripts/run_tests.sh", "postgres"]
     depends_on:

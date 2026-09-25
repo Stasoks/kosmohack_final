@@ -64,6 +64,15 @@ def validate_event(value: Any) -> EventEnvelope:
     if (event_type, version) not in SCHEMA_REGISTRY:
         raise TraceQError("UNSUPPORTED_SCHEMA_VERSION", "Unsupported event schema version", 422)
     candidate = _normalize_legacy(value)
+    duration = candidate.get("payload", {}).get("duration")
+    if event_type == "operation.finished" and isinstance(duration, dict):
+        duration_value = duration.get("value")
+        if isinstance(duration_value, (int, float)) and not isinstance(duration_value, bool) and duration_value < 0:
+            raise TraceQError(
+                "SEMANTIC_VALIDATION_ERROR",
+                "Operation duration cannot be negative",
+                422,
+            )
     try:
         candidate["payload"] = PAYLOAD_MODELS[event_type].model_validate(candidate.get("payload"))
         return EventEnvelope.model_validate(candidate)
