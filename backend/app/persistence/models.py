@@ -582,6 +582,7 @@ class RouteStep(Base):
     position: Mapped[int] = mapped_column(Integer)
     operation_id: Mapped[str] = mapped_column(String(128))
     operation_name: Mapped[str] = mapped_column(String(255))
+    station_id: Mapped[str | None] = mapped_column(String(128), index=True)
     control_point_id: Mapped[str | None] = mapped_column(String(128))
     required_inspection: Mapped[bool] = mapped_column(Boolean, default=False)
     inspection_scope: Mapped[dict[str, Any] | list[Any] | None] = mapped_column(JSONB)
