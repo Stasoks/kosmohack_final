@@ -11,8 +11,8 @@ from sqlalchemy.orm import Session
 from backend.app.errors import NotFoundError, TraceQError
 from backend.app.persistence.database import get_db
 from backend.app.persistence.models import (
-    ApprovalRequest, BlastRadiusExposure, BlastRadiusQuery, ContainmentProposal,
-    ControlDeviceInvalidation, Observation, OperationRun,
+    ApprovalRequest, BlastRadiusExposure, BlastRadiusQuery, ContainmentApplication,
+    ContainmentProposal, ControlDeviceInvalidation, Observation, OperationRun,
 )
 from backend.app.projections.rebuild import rebuild_item
 from backend.app.security.audit import write_audit
@@ -131,15 +131,51 @@ def approve(
         raise TraceQError("DUPLICATE_APPROVAL", "This user already approved", 409)
     approvals.append({"user_id": str(principal.user_id), "reason": body.reason, "at": utcnow().isoformat()})
     approval.approvals = approvals
+    applied_items: list[str] = []
     if len(approvals) >= approval.required_approvals:
         approval.status, approval.completed_at = "APPROVED", utcnow()
         proposal = db.get(ContainmentProposal, uuid.UUID(approval.target_id))
         if proposal:
-            proposal.status, proposal.reviewed_by, proposal.review_reason, proposal.reviewed_at = "approved", principal.user_id, body.reason, utcnow()
+            proposal.status, proposal.reviewed_by, proposal.review_reason, proposal.reviewed_at = (
+                "approved", principal.user_id, body.reason, utcnow()
+            )
+            if proposal.blast_radius_query_id:
+                exposures = db.scalars(
+                    select(BlastRadiusExposure)
+                    .where(BlastRadiusExposure.query_id == proposal.blast_radius_query_id)
+                    .order_by(BlastRadiusExposure.item_id)
+                ).all()
+                existing = set(
+                    db.scalars(
+                        select(ContainmentApplication.item_id).where(
+                            ContainmentApplication.proposal_id == proposal.id
+                        )
+                    ).all()
+                )
+                for exposure in exposures:
+                    if exposure.item_id in existing:
+                        continue
+                    db.add(
+                        ContainmentApplication(
+                            proposal_id=proposal.id,
+                            blast_radius_query_id=proposal.blast_radius_query_id,
+                            exposure_id=exposure.id,
+                            item_id=exposure.item_id,
+                            action=proposal.containment,
+                            approval_request_id=approval.id,
+                            approved_by=principal.user_id,
+                        )
+                    )
+                    applied_items.append(exposure.item_id)
     write_audit(db, action="containment_approval", outcome=approval.status.lower(), actor_user_id=principal.user_id,
         session_id=principal.session_id, target_type="approval_request", target_id=str(approval.id), request_id=request.state.request_id)
     db.commit()
-    return {"status": approval.status, "approvals": len(approvals), "required": approval.required_approvals}
+    return {
+        "status": approval.status,
+        "approvals": len(approvals),
+        "required": approval.required_approvals,
+        "applied_items": applied_items,
+    }
 
 
 @router.post("/control-devices/invalidate")
