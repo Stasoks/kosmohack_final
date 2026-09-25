@@ -1,0 +1,13 @@
+{
+  "assembly_id": "PD-TRACE-01",
+  "revision": "A",
+  "components": [
+    {
+      "component_definition_id": "COMP-BODY",
+      "name": "Корпус",
+      "quantity": 1,
+      "geometry_available": false
+    }
+  ],
+  "relations": []
+}

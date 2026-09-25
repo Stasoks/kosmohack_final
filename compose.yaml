@@ -1,0 +1,149 @@
+name: trace-q
+
+x-backend-environment: &backend-environment
+  DEMO_MODE: ${DEMO_MODE:-false}
+  ENVIRONMENT: ${ENVIRONMENT:-production}
+  DATABASE_URL: postgresql+psycopg://${POSTGRES_APP_USER:-traceq_app}:${POSTGRES_APP_PASSWORD:?set POSTGRES_APP_PASSWORD}@postgres:5432/${POSTGRES_DB:-traceq}
+  JWT_SIGNING_SECRET: ${JWT_SIGNING_SECRET:?set JWT_SIGNING_SECRET}
+  AES_DATA_KEY_B64: ${AES_DATA_KEY_B64:?set AES_DATA_KEY_B64}
+  INTEGRITY_HMAC_KEY_B64: ${INTEGRITY_HMAC_KEY_B64:?set INTEGRITY_HMAC_KEY_B64}
+  ERP_EMULATOR_URL: http://erp-emulator:8090
+  SOURCE_DEMO_TOKEN: ${SOURCE_DEMO_TOKEN:-}
+
+services:
+  postgres:
+    image: postgres:16.10-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-traceq}
+      POSTGRES_USER: ${POSTGRES_OWNER_USER:-traceq_owner}
+      POSTGRES_PASSWORD: ${POSTGRES_OWNER_PASSWORD:?set POSTGRES_OWNER_PASSWORD}
+      POSTGRES_APP_PASSWORD: ${POSTGRES_APP_PASSWORD:?set POSTGRES_APP_PASSWORD}
+    command:
+      - postgres
+      - -c
+      - shared_buffers=96MB
+      - -c
+      - work_mem=2MB
+      - -c
+      - max_connections=40
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./configs/postgres/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_OWNER_USER:-traceq_owner} -d ${POSTGRES_DB:-traceq}"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+    networks: [traceq-internal]
+    restart: unless-stopped
+
+  migrate:
+    build:
+      context: .
+      dockerfile: docker/python.Dockerfile
+    environment:
+      MIGRATION_DATABASE_URL: postgresql+psycopg://${POSTGRES_OWNER_USER:-traceq_owner}:${POSTGRES_OWNER_PASSWORD:?set POSTGRES_OWNER_PASSWORD}@postgres:5432/${POSTGRES_DB:-traceq}
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_OWNER_USER:-traceq_owner}:${POSTGRES_OWNER_PASSWORD:?set POSTGRES_OWNER_PASSWORD}@postgres:5432/${POSTGRES_DB:-traceq}
+      JWT_SIGNING_SECRET: ${JWT_SIGNING_SECRET:?set JWT_SIGNING_SECRET}
+      AES_DATA_KEY_B64: ${AES_DATA_KEY_B64:?set AES_DATA_KEY_B64}
+      INTEGRITY_HMAC_KEY_B64: ${INTEGRITY_HMAC_KEY_B64:?set INTEGRITY_HMAC_KEY_B64}
+      DEMO_MODE: ${DEMO_MODE:-false}
+    command: ["alembic", "upgrade", "head"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks: [traceq-internal]
+    restart: "no"
+
+  seed:
+    build:
+      context: .
+      dockerfile: docker/python.Dockerfile
+    environment:
+      <<: *backend-environment
+      SOURCE_DEMO_TOKEN: ${SOURCE_DEMO_TOKEN:-}
+      DEMO_CONTROLLER_PASSWORD: ${DEMO_CONTROLLER_PASSWORD:-}
+      DEMO_MASTER_PASSWORD: ${DEMO_MASTER_PASSWORD:-}
+      DEMO_TECHNOLOGIST_PASSWORD: ${DEMO_TECHNOLOGIST_PASSWORD:-}
+      DEMO_MANAGER_PASSWORD: ${DEMO_MANAGER_PASSWORD:-}
+      DEMO_ADMIN_PASSWORD: ${DEMO_ADMIN_PASSWORD:-}
+    command: ["python", "-m", "backend.app.seed"]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    networks: [traceq-internal]
+    restart: "no"
+
+  backend:
+    build:
+      context: .
+      dockerfile: docker/python.Dockerfile
+    environment: *backend-environment
+    command: ["uvicorn", "backend.app.main:app", "--host", "0.0.0.0", "--port", "8080", "--workers", "1"]
+    depends_on:
+      seed:
+        condition: service_completed_successfully
+      erp-emulator:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/health/live')"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    expose: ["8080"]
+    networks: [traceq-internal]
+    restart: unless-stopped
+
+  worker:
+    build:
+      context: .
+      dockerfile: docker/python.Dockerfile
+    environment: *backend-environment
+    command: ["python", "-m", "worker.main"]
+    depends_on:
+      backend:
+        condition: service_healthy
+    networks: [traceq-internal]
+    restart: unless-stopped
+
+  erp-emulator:
+    build:
+      context: .
+      dockerfile: docker/python.Dockerfile
+    command: ["uvicorn", "erp_emulator.app.main:app", "--host", "0.0.0.0", "--port", "8090"]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8090/health')"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    expose: ["8090"]
+    networks: [traceq-internal]
+    restart: unless-stopped
+
+  streamlit:
+    build:
+      context: .
+      dockerfile: docker/python.Dockerfile
+    environment:
+      TRACEQ_API_URL: http://backend:8080
+      DEMO_MODE: ${DEMO_MODE:-false}
+    command: ["streamlit", "run", "streamlit_app/Home.py", "--server.address=0.0.0.0", "--server.port=8501", "--server.headless=true"]
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8501/_stcore/health')"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    ports:
+      - "${TRACEQ_UI_PORT:-8501}:8501"
+    networks: [traceq-internal]
+    restart: unless-stopped
+
+networks:
+  traceq-internal:
+    driver: bridge
+
+volumes:
+  postgres-data:

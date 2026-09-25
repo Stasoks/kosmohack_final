@@ -1,0 +1,1 @@
+"""ERP emulator application."""

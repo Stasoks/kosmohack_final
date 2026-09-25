@@ -1,0 +1,15 @@
+services:
+  postgres:
+    ports:
+      - "127.0.0.1:${TRACEQ_DB_DEBUG_PORT:-55432}:5432"
+
+  backend:
+    environment:
+      DEMO_MODE: "true"
+      DEMO_PRIVILEGED_DATABASE_URL: postgresql+psycopg://${POSTGRES_OWNER_USER:-traceq_owner}:${POSTGRES_OWNER_PASSWORD:-demo-owner-change-me}@postgres:5432/${POSTGRES_DB:-traceq}
+    ports:
+      - "127.0.0.1:${TRACEQ_API_PORT:-8080}:8080"
+
+  erp-emulator:
+    ports:
+      - "127.0.0.1:${TRACEQ_ERP_PORT:-8090}:8090"
