@@ -158,17 +158,18 @@ def seed() -> None:
             db.add(revision)
             db.flush()
             steps = (
-                (1, "OP-INCOMING", "Входной контроль", "CP-IN", True),
-                (2, "OP-TURN", "Механическая обработка", "CP-AFTER-TURN", True),
-                (3, "OP-ASSEMBLY", "Сборка", "CP-FINAL", True),
+                (1, "OP-INCOMING", "Входной контроль", "ST-10", "CP-IN", True),
+                (2, "OP-TURN", "Механическая обработка", "ST-20", "CP-AFTER-TURN", True),
+                (3, "OP-ASSEMBLY", "Сборка", "ST-30", "CP-FINAL", True),
             )
-            for position, operation_id, name, control_point, required in steps:
+            for position, operation_id, name, station_id, control_point, required in steps:
                 db.add(
                     RouteStep(
                         route_revision_id=revision.id,
                         position=position,
                         operation_id=operation_id,
                         operation_name=name,
+                        station_id=station_id,
                         control_point_id=control_point,
                         required_inspection=required,
                         inspection_scope={"defect_types": ["*"], "component_instance_ids": ["*"]},
