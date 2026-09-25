@@ -139,6 +139,7 @@ class ScenarioRuntime:
         self.erp_states: list[str] = []
         self.erp_message_ids: list[str] = []
         self.analysis_result: dict[str, Any] | None = None
+        self.ncr_count_before_analysis: int | None = None
         self.audit_start = 0
 
     def _request(self, suffix: str) -> Any:
