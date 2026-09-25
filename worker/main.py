@@ -35,6 +35,28 @@ def _heartbeat(db) -> None:
     row.status = "healthy"
 
 
+def _integration_health(db, integration_id: str) -> IntegrationHealth:
+    row = db.get(IntegrationHealth, integration_id)
+    if row is None:
+        row = IntegrationHealth(integration_id=integration_id, status="UNKNOWN")
+        db.add(row)
+    return row
+
+
+def _mark_healthy(db, integration_id: str) -> None:
+    row = _integration_health(db, integration_id)
+    row.status = "HEALTHY"
+    row.last_success_at = utcnow()
+    row.safe_error = None
+
+
+def _mark_unhealthy(db, integration_id: str, error: str) -> None:
+    row = _integration_health(db, integration_id)
+    row.status = "UNHEALTHY"
+    row.last_error_at = utcnow()
+    row.safe_error = error[:1000]
+
+
 def process_one() -> bool:
     db = SessionLocal()
     try:
@@ -73,11 +95,7 @@ def process_one() -> bool:
                     safe_payload={"ack": ack},
                 )
             )
-            health = db.get(IntegrationHealth, message.destination)
-            if health:
-                health.status = "HEALTHY"
-                health.last_success_at = utcnow()
-                health.safe_error = None
+            _mark_healthy(db, message.destination)
         except httpx.HTTPStatusError as exc:
             status = exc.response.status_code
             retryable = status in {408, 429} or status >= 500
@@ -98,6 +116,7 @@ def process_one() -> bool:
                     safe_payload={"http_status": status, "attempt": message.attempts},
                 )
             )
+            _mark_unhealthy(db, message.destination, f"HTTP {status}")
         except (httpx.TimeoutException, httpx.NetworkError) as exc:
             message.state = "RETRYING" if message.attempts < settings.outbox_max_attempts else "FAILED"
             message.last_error = type(exc).__name__
@@ -111,12 +130,14 @@ def process_one() -> bool:
                     safe_payload={"error_type": type(exc).__name__, "attempt": message.attempts},
                 )
             )
+            _mark_unhealthy(db, message.destination, type(exc).__name__)
         except ValueError as exc:
             message.state = "FAILED"
             message.last_error = str(exc)
             db.add(IntegrationMessage(message_id=message.message_id, direction="outbound",
                                       external_system=message.destination, status="FAILED",
                                       safe_payload={"error_type": "INVALID_ACK"}))
+            _mark_unhealthy(db, message.destination, "INVALID_ACK")
         db.commit()
         return True
     except Exception:
