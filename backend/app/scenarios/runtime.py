@@ -642,6 +642,9 @@ class ScenarioRuntime:
         return {"route_id": route.code, "revision": f"v{revision.revision}"}
 
     def analysis(self, row: dict[str, Any]) -> Any:
+        self.ncr_count_before_analysis = self.db.scalar(
+            select(func.count(Nonconformance.id))
+        ) or 0
         factor = row.get("risk_factor") or {}
         factor_type = {
             "tool_id": "tool",
