@@ -158,6 +158,7 @@ def route_editor() -> None:
                 {
                     "operation_id": step["operation_id"],
                     "operation_name": step["operation_name"],
+                    "station_id": step.get("station_id"),
                     "control_point_id": step["control_point_id"],
                     "required": step["required"],
                     "inspection_scope": step["inspection_scope"],
@@ -169,7 +170,8 @@ def route_editor() -> None:
         )
         st.caption("Таблица поддерживает добавление и удаление строк; позиция задаёт порядок.")
         editable = [{"position": i + 1, "operation_id": step["operation_id"], "operation_name": step["operation_name"],
-                     "control_point_id": step["control_point_id"], "required": step["required"]} for i, step in enumerate(base)]
+                     "station_id": step.get("station_id"), "control_point_id": step["control_point_id"],
+                     "required": step["required"]} for i, step in enumerate(base)]
         edited = st.data_editor(editable, num_rows="dynamic", use_container_width=True, key="route_steps")
         edited = sorted(edited, key=lambda row: row.get("position", 0))
         steps_text = json.dumps([{k: v for k, v in row.items() if k != "position"} for row in edited], ensure_ascii=False)
