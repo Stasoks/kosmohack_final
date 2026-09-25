@@ -157,3 +157,23 @@ def test_item_level_ncr_is_not_cleared_by_component_only_good() -> None:
     assert not repeat_good_covers_nonconformance(
         component_only, defect_type="surface_crack", component_instance_id=None
     )
+
+
+def test_left_open_birth_window_records_missing_prior_trusted_inspection() -> None:
+    defect = {
+        "event_id": "D1",
+        "occurred_at": dt(30),
+        "defect_type": "surface_crack",
+        "component_instance_id": "C1",
+    }
+    result = calculate_birth_window(
+        defect_observation=defect,
+        observations=[],
+        operations=[],
+        machine_events=[],
+        operator_actions=[],
+    )
+    assert result.status == "LEFT_OPEN"
+    assert "NO_PREVIOUS_TRUSTED_INSPECTION" in {
+        value.evidence_type for value in result.evidence
+    }

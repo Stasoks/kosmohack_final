@@ -68,6 +68,16 @@ def calculate_birth_window(
                 {"control_point_id": last_good.get("control_point_id")},
             ),
         )
+    else:
+        evidence.append(
+            EvidenceValue(
+                "NO_PREVIOUS_TRUSTED_INSPECTION",
+                "LIMITATION",
+                None,
+                None,
+                {"defect_type": defect_type, "component_instance_id": component},
+            )
+        )
 
     def inside(value: datetime) -> bool:
         return (left is None or value > left) and value <= defect_time

@@ -390,20 +390,39 @@ class ScenarioRuntime:
         payload = row.get("payload") or {}
 
         if action == "CONFIRM_NONCONFORMANCE":
-            ncr = self._find_ncr(row)
+            target = row.get("target") or {}
             disposition = payload.get("disposition", "REWORK_REQUIRED")
-            result = decide_nonconformance(
-                ncr.id,
-                DecisionRequest(
-                    verdict="confirmed",
-                    disposition=disposition,
-                    containment="HOLD" if disposition == "REWORK_REQUIRED" else "NONE",
-                    reason=payload.get("reason") or "Scenario controller decision",
-                ),
-                self._request(action),
-                principal,
-                self.db,
-            )
+            ncrs: list[Nonconformance]
+            if target.get("item_id") and not target.get("defect_type"):
+                ncrs = self.db.scalars(
+                    select(Nonconformance)
+                    .where(Nonconformance.item_id == target["item_id"])
+                    .order_by(Nonconformance.opened_at, Nonconformance.id)
+                ).all()
+                if not ncrs:
+                    raise TraceQError(
+                        "SCENARIO_NCR_NOT_FOUND", "Scenario NCR was not found", 409
+                    )
+            else:
+                ncrs = [self._find_ncr(row)]
+
+            result = None
+            for ncr in ncrs:
+                result = decide_nonconformance(
+                    ncr.id,
+                    DecisionRequest(
+                        verdict="confirmed",
+                        disposition=disposition,
+                        containment="HOLD" if disposition == "REWORK_REQUIRED" else "NONE",
+                        reason=payload.get("reason") or "Scenario controller decision",
+                    ),
+                    self._request(action),
+                    principal,
+                    self.db,
+                )
+            alias = payload.get("nonconformance_id")
+            if alias and len(ncrs) == 1:
+                self.ncr_aliases[str(alias)] = ncrs[0].id
             self.action_results[action] = "ALLOWED"
             return result
 
@@ -536,7 +555,7 @@ class ScenarioRuntime:
                     "source_hmac_secrets_json": SecretStr(
                         json.dumps({"MES-01": "mes-test-secret"})
                     ),
-                    "source_timestamp_tolerance_seconds": 24 * 60 * 60,
+                    "source_timestamp_tolerance_seconds": 7 * 24 * 60 * 60,
                 }
             )
 
@@ -823,8 +842,10 @@ class ScenarioRuntime:
             "duplicate_deliveries": self.duplicates,
             "duplicate_count": self.duplicates,
             "raw_event_count": raw_count,
+            "raw_event_count_delta": raw_count,
             "observation_count": len(observations),
             "ncr_count": len(ncrs),
+            "ncr_count_delta": len(ncrs),
             "trusted_observations": len(trusted),
             "trust": {row.event_id: row.trust_status for row in observations},
             "birth_windows": birth_windows,
@@ -845,10 +866,7 @@ class ScenarioRuntime:
                 self.db.scalars(select(BlastRadiusExposure.item_id)).all()
             ),
             "must_not_include": sorted(
-                {
-                    row.item_id for row in items
-                    if row.item_id not in set(self.db.scalars(select(BlastRadiusExposure.item_id)).all())
-                }
+                set(self.db.scalars(select(BlastRadiusExposure.item_id)).all())
             ),
             "automatic_defect_assignment": False,
             "automatic_containment_application": (
@@ -902,7 +920,9 @@ class ScenarioRuntime:
                 for defect_type in sorted({row.defect_type for row in confirmed})
             },
             "rework_count": len(rework_runs),
+            "rework_count_delta": len(rework_runs),
             "rework_item_count": len(rework_items),
+            "original_defect_preserved": bool(occurrences),
             "rejected_signal_must_not_count_as_confirmed_nc": all(
                 row.item_id not in {n.item_id for n in confirmed}
                 for row in ncrs if row.verdict == "rejected"
@@ -980,6 +1000,22 @@ class ScenarioRuntime:
             )
             actual["missing_control_point"] = (
                 (missing.details or {}).get("control_point_id") if missing else None
+            )
+
+        if self.scenario_id == "S10":
+            conflicted = [row for row in observations if row.trust_status == "CONFLICTED"]
+            actual["inspection_session"] = (
+                conflicted[0].capture_session_id if conflicted else None
+            )
+            actual["trust_state"] = "CONFLICTED" if conflicted else None
+            actual["ncr_status"] = ncrs[0].verdict if ncrs else None
+            actual["trusted_good_boundary"] = any(
+                row.trust_status == "TRUSTED" and row.inspection_result == "no_defect"
+                for row in observations
+            )
+            actual["trusted_defect_boundary"] = any(
+                row.trust_status == "TRUSTED" and row.inspection_result == "defect_detected"
+                for row in observations
             )
 
         if self.scenario_id == "S14":
