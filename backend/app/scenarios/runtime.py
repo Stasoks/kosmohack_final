@@ -1058,6 +1058,6 @@ class ScenarioRuntime:
                 actual[item.item_id] = {
                     "route_revision": f"v{revision.revision}" if revision else None
                 }
-            actual["old_route_rewritten"] = False
+            actual["old_route_rewritten"] = actual.get("ITEM-S24-OLD", {}).get("route_revision") != "v1"
 
         return actual
