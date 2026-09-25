@@ -153,3 +153,55 @@ def test_blast_radius_requires_human_approval_before_application() -> None:
 
     with engine.connect() as connection:
         assert connection.scalar(text("SELECT count(*) FROM containment_applications")) == 3
+
+
+def test_route_import_activation_supersedes_previous_revision() -> None:
+    client = _client()
+    technologist = _login(client, "technologist", "technologist-demo")
+    headers = _headers(technologist)
+    route_code = "AUDIT-ROUTE-IMPORT"
+
+    first = client.post(
+        "/api/v1/routes/import",
+        headers=headers,
+        json={
+            "code": route_code,
+            "name": "Audit route import",
+            "activate": True,
+            "steps": [
+                {
+                    "operation_id": "AUDIT-OP-1",
+                    "operation_name": "Audit operation 1",
+                    "station_id": "ST-01",
+                }
+            ],
+        },
+    )
+    assert first.status_code == 200, first.text
+
+    second = client.post(
+        "/api/v1/routes/import",
+        headers=headers,
+        json={
+            "code": route_code,
+            "name": "Audit route import",
+            "activate": True,
+            "steps": [
+                {
+                    "operation_id": "AUDIT-OP-2",
+                    "operation_name": "Audit operation 2",
+                    "station_id": "ST-02",
+                }
+            ],
+        },
+    )
+    assert second.status_code == 200, second.text
+
+    route_id = first.json()["route_id"]
+    details = client.get(f"/api/v1/routes/{route_id}", headers=headers)
+    assert details.status_code == 200, details.text
+    statuses = [
+        (row["revision"], row["status"])
+        for row in details.json()["revisions"]
+    ]
+    assert statuses == [(1, "superseded"), (2, "active")]
