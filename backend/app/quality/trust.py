@@ -63,7 +63,7 @@ def scope_covers(
     if isinstance(inspection_scope, list):
         return defect_type in inspection_scope or "*" in inspection_scope
     defects = inspection_scope.get("defect_types", ["*"])
-    components = inspection_scope.get("component_instance_ids", ["*"])
+    components = inspection_scope.get("component_instance_ids", inspection_scope.get("components", ["*"]))
     defect_ok = "*" in defects or defect_type in defects
     component_ok = (
         component_instance_id is None
