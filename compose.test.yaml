@@ -5,13 +5,32 @@ services:
       POSTGRES_DB: traceq_test
       POSTGRES_USER: traceq_test
       POSTGRES_PASSWORD: traceq_test
+      POSTGRES_APP_PASSWORD: traceq_app
     ports: ["127.0.0.1:55433:5432"]
     tmpfs: [/var/lib/postgresql/data]
+    volumes:
+      - ./configs/postgres/init:/docker-entrypoint-initdb.d:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U traceq_test -d traceq_test"]
       interval: 2s
       timeout: 2s
       retries: 30
+
+  migrate-test:
+    build:
+      context: .
+      dockerfile: docker/python.Dockerfile
+    environment:
+      ENVIRONMENT: test
+      MIGRATION_DATABASE_URL: postgresql+psycopg://traceq_test:traceq_test@postgres-test:5432/traceq_test
+      DATABASE_URL: postgresql+psycopg://traceq_test:traceq_test@postgres-test:5432/traceq_test
+      JWT_SIGNING_SECRET: test-jwt-secret-at-least-32-bytes-long
+      AES_DATA_KEY_B64: MDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDA=
+      INTEGRITY_HMAC_KEY_B64: MTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTE=
+    command: ["alembic", "upgrade", "head"]
+    depends_on:
+      postgres-test: {condition: service_healthy}
+
   postgres-tests:
     build:
       context: .
@@ -19,11 +38,11 @@ services:
     environment:
       ENVIRONMENT: test
       RUN_POSTGRES_TESTS: "1"
-      TRACEQ_TEST_DATABASE_URL: postgresql+psycopg://traceq_test:traceq_test@postgres-test:5432/traceq_test
-      DATABASE_URL: postgresql+psycopg://traceq_test:traceq_test@postgres-test:5432/traceq_test
+      TRACEQ_TEST_DATABASE_URL: postgresql+psycopg://traceq_app:traceq_app@postgres-test:5432/traceq_test
+      DATABASE_URL: postgresql+psycopg://traceq_app:traceq_app@postgres-test:5432/traceq_test
       JWT_SIGNING_SECRET: test-jwt-secret-at-least-32-bytes-long
       AES_DATA_KEY_B64: MDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDA=
       INTEGRITY_HMAC_KEY_B64: MTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTE=
     command: ["./scripts/run_tests.sh", "postgres"]
     depends_on:
-      postgres-test: {condition: service_healthy}
+      migrate-test: {condition: service_completed_successfully}
