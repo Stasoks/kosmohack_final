@@ -39,7 +39,7 @@ Never reuse these credentials or the demo crypto keys outside the demo profile. 
 
 ## Demo scenarios
 
-Log in as any demo user, open **Scenario Runner**, reset demo data, and run `S03_new_defect`. Then log in as `controller`, open **Решения QC**, and confirm the NCR with `REWORK_REQUIRED` and `HOLD`.
+Log in as any demo user, open **Scenario Runner**, reset demo data, and run `S03`. Then log in as `controller`, open **Решения QC**, and confirm the NCR with `REWORK_REQUIRED` and `HOLD`.
 
 For the full demonstration sequence, including ERP timeout/recovery and tamper detection, see [docs/scenarios.md](docs/scenarios.md).
 
