@@ -161,7 +161,7 @@ def ready():
     try:
         db.execute(text("SELECT 1"))
         revision = db.scalar(text("SELECT version_num FROM alembic_version LIMIT 1"))
-        if revision != "20260926_0003":
+        if revision != "20260926_0004":
             return JSONResponse(status_code=503, content={"status": "not_ready", "reason": "migration"})
         return {"status": "ready", "migration": revision, "crypto_profile": "classic-v1"}
     except Exception:
