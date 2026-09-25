@@ -177,3 +177,16 @@ def test_left_open_birth_window_records_missing_prior_trusted_inspection() -> No
     assert "NO_PREVIOUS_TRUSTED_INSPECTION" in {
         value.evidence_type for value in result.evidence
     }
+
+
+def test_item_level_scope_requires_item_wide_component_coverage() -> None:
+    restricted = {
+        "defect_types": ["surface_crack"],
+        "component_instance_ids": ["C1"],
+    }
+    assert not scope_covers(restricted, "surface_crack", None)
+    assert scope_covers(
+        {"defect_types": ["surface_crack"], "component_instance_ids": ["*"]},
+        "surface_crack",
+        None,
+    )
