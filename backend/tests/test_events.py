@@ -57,3 +57,11 @@ def test_optional_values_are_not_invented() -> None:
     value = fixture_event("S02")
     event = validate_event(value)
     assert event.operation_run_id is None
+
+
+def test_load_generator_emits_canonical_item_registration() -> None:
+    from scripts.generate_events import event_stream
+
+    event = next(event_stream(1, 1, 0.0, 0.0, 0.0, 42))
+    assert "item_id" not in event["payload"]
+    validate_event(event)
