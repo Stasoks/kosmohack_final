@@ -17,7 +17,7 @@ from backend.app.security.key_provider import CRYPTO_PROFILES
 from backend.app.projections.rebuild import mark_projection_failed, rebuild_item
 from backend.app.security.audit import write_audit
 from backend.app.security.auth import Principal, require_critical_permission, require_permission
-from backend.app.security.integrity import verify_integrity
+from backend.app.security.integrity import verify_audit_integrity, verify_integrity
 from backend.app.security.checkpoints import create_classic_checkpoint
 from backend.app.security.passwords import hash_password
 from backend.app.security.crypto import token_hash
@@ -356,22 +356,28 @@ def integrity_check(
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings),
 ):
-    failures = verify_integrity(db, settings)
+    raw_failures = verify_integrity(db, settings)
+    audit_failures = verify_audit_integrity(db, settings)
+    failed = bool(raw_failures or audit_failures)
     write_audit(
         db,
         action="integrity_verification",
-        outcome="failure" if failures else "success",
+        outcome="failure" if failed else "success",
         actor_user_id=principal.user_id,
         session_id=principal.session_id,
         target_type="system",
-        target_id="raw_event_integrity",
+        target_id="raw_and_audit_integrity",
         request_id=request.state.request_id,
-        safe_details={"failure_count": len(failures)},
+        safe_details={
+            "raw_failure_count": len(raw_failures),
+            "audit_failure_count": len(audit_failures),
+        },
     )
     db.commit()
     return {
-        "status": "FAILED" if failures else "OK",
-        "failures": [failure.__dict__ for failure in failures],
+        "status": "FAILED" if failed else "OK",
+        "raw_failures": [failure.__dict__ for failure in raw_failures],
+        "audit_failures": [failure.__dict__ for failure in audit_failures],
     }
 
 
