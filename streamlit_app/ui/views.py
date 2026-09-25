@@ -199,9 +199,71 @@ def admin_panel() -> None:
     header("Администрирование")
     tabs = st.tabs(["Пользователи", "Источники", "Интеграции", "Аудит", "Целостность", "Security Alerts"])
     with tabs[0]:
-        st.dataframe(request("GET", "/api/v1/admin/users"), use_container_width=True, hide_index=True)
+        users = request("GET", "/api/v1/admin/users")
+        st.dataframe(users, use_container_width=True, hide_index=True)
+        with st.expander("Создать пользователя"):
+            with st.form("create_user"):
+                username = st.text_input("Логин")
+                display_name = st.text_input("Отображаемое имя")
+                password = st.text_input("Пароль", type="password")
+                roles = st.multiselect(
+                    "Роли",
+                    ["controller", "master", "technologist", "manager", "admin"],
+                )
+                if st.form_submit_button("Создать"):
+                    result = request(
+                        "POST",
+                        "/api/v1/admin/users",
+                        json={
+                            "username": username,
+                            "display_name": display_name,
+                            "password": password,
+                            "roles": roles,
+                        },
+                    )
+                    st.success(f"Создан пользователь {result['username']}")
+                    st.rerun()
     with tabs[1]:
-        st.dataframe(request("GET", "/api/v1/admin/sources"), use_container_width=True, hide_index=True)
+        sources = request("GET", "/api/v1/admin/sources")
+        st.dataframe(sources, use_container_width=True, hide_index=True)
+        with st.expander("Зарегистрировать источник"):
+            with st.form("create_source"):
+                source_id = st.text_input("Source ID")
+                source_type = st.text_input("Source type")
+                auth_method = st.selectbox("Аутентификация", ["shared_secret_legacy", "HMAC_V1"])
+                event_types = st.multiselect(
+                    "Разрешённые события",
+                    [
+                        "item.registered",
+                        "operation.started",
+                        "operation.finished",
+                        "inspection.result",
+                        "machine.state",
+                        "operator.action",
+                        "control_device.invalidated",
+                    ],
+                )
+                key_id = st.text_input("HMAC key_id (для HMAC_V1)")
+                line_ids = st.text_input("Line IDs через запятую")
+                station_ids = st.text_input("Station IDs через запятую")
+                if st.form_submit_button("Создать источник"):
+                    body = {
+                        "source_id": source_id,
+                        "source_type": source_type,
+                        "auth_method": auth_method,
+                        "allowed_event_types": event_types,
+                        "allowed_line_ids": [x.strip() for x in line_ids.split(",") if x.strip()],
+                        "allowed_station_ids": [x.strip() for x in station_ids.split(",") if x.strip()],
+                    }
+                    if auth_method == "HMAC_V1" and key_id:
+                        body["key_id"] = key_id
+                    result = request("POST", "/api/v1/admin/sources", json=body)
+                    if result.get("token"):
+                        st.warning("Токен показывается один раз. Сохраните его сейчас.")
+                        st.code(result["token"])
+                    else:
+                        st.success(f"Источник {result['source_id']} зарегистрирован")
+                    st.rerun()
     with tabs[2]:
         st.json(request("GET", "/api/v1/integrations"), expanded=True)
         if st.button("Синхронизировать ERP"):
@@ -222,20 +284,76 @@ def admin_panel() -> None:
 
 
 def blast_radius() -> None:
-    header("Blast Radius и containment proposal")
-    with st.form("blast_radius"):
-        factor_type = st.selectbox("Фактор", ["equipment", "tool", "material_lot", "control_device", "component", "time_interval"])
-        factor_value = st.text_input("ID / значение")
-        affected_from = st.text_input("Начало ISO-8601")
-        affected_to = st.text_input("Конец ISO-8601")
-        action = st.selectbox("Предложение", ["REVIEW_REQUIRED", "REINSPECTION_REQUIRED", "HOLD"])
-        rationale = st.text_area("Обоснование")
-        if st.form_submit_button("Рассчитать и создать proposal"):
-            result = request("POST", "/api/v1/risk/blast-radius", json={"factor_type": factor_type,
-                "factor_value": factor_value, "affected_from": affected_from, "affected_to": affected_to,
-                "proposed_action": action, "rationale": rationale})
-            st.warning("Расчёт сам по себе не создаёт дефект и не применяет HOLD.")
-            st.json(result)
+    header("Risk, Blast Radius и invalidation")
+    permissions = set(st.session_state.profile["permissions"])
+
+    if "RUN_BLAST_RADIUS" in permissions:
+        st.subheader("Blast Radius")
+        with st.form("blast_radius"):
+            factor_type = st.selectbox("Фактор", ["equipment", "tool", "material_lot", "control_device", "component", "time_interval"])
+            factor_value = st.text_input("ID / значение")
+            affected_from = st.text_input("Начало ISO-8601", key="blast_from")
+            affected_to = st.text_input("Конец ISO-8601", key="blast_to")
+            action = st.selectbox("Предложение", ["REVIEW_REQUIRED", "REINSPECTION_REQUIRED", "HOLD"])
+            rationale = st.text_area("Обоснование")
+            if st.form_submit_button("Рассчитать и создать proposal"):
+                result = request("POST", "/api/v1/risk/blast-radius", json={
+                    "factor_type": factor_type,
+                    "factor_value": factor_value,
+                    "affected_from": affected_from,
+                    "affected_to": affected_to,
+                    "proposed_action": action,
+                    "rationale": rationale,
+                })
+                st.warning("Расчёт сам по себе не создаёт дефект и не применяет containment.")
+                st.json(result)
+
+    if "APPROVE_CONTAINMENT" in permissions:
+        st.subheader("Ожидающие approvals")
+        approvals = request("GET", "/api/v1/risk/approvals")
+        if approvals:
+            st.dataframe(approvals, use_container_width=True, hide_index=True)
+            labels = {
+                f"{row['action_type']} · {row['target_id']} · {row['id']}": row["id"]
+                for row in approvals
+            }
+            approval_id = labels[st.selectbox("Approval", labels)]
+            approval_reason = st.text_area("Обоснование approval")
+            if st.button("Подтвердить containment", type="primary"):
+                result = request(
+                    "POST",
+                    f"/api/v1/risk/approvals/{approval_id}/approve",
+                    json={"reason": approval_reason},
+                )
+                st.success(f"Статус: {result['status']}; применено к {len(result['applied_items'])} изделиям")
+                st.json(result)
+                st.rerun()
+        else:
+            st.info("Нет containment proposals, ожидающих approval.")
+
+    if "INVALIDATE_CONTROL_DEVICE" in permissions:
+        st.subheader("Инвалидация контрольного устройства")
+        with st.form("invalidate_device"):
+            device_id = st.text_input("Device ID")
+            invalid_from = st.text_input("Начало affected interval ISO-8601")
+            invalid_to = st.text_input("Конец affected interval ISO-8601")
+            invalid_reason = st.text_area("Причина инвалидации")
+            invalid_type = st.text_input("Тип / код инвалидации")
+            if st.form_submit_button("Зафиксировать invalidation"):
+                result = request(
+                    "POST",
+                    "/api/v1/risk/control-devices/invalidate",
+                    json={
+                        "device_id": device_id,
+                        "affected_from": invalid_from,
+                        "affected_to": invalid_to,
+                        "reason": invalid_reason,
+                        "invalidation_type": invalid_type or None,
+                        "supporting_evidence_refs": [],
+                    },
+                )
+                st.success(f"Пересчитано изделий: {len(result['affected_items'])}")
+                st.json(result)
 
 
 def scenario_runner() -> None:

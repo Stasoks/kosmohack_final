@@ -113,6 +113,34 @@ def blast_radius(
             "note": "No defect or HOLD is applied until controller approval."}
 
 
+@router.get("/approvals")
+def list_approvals(
+    status: str = "PENDING",
+    _: Principal = Depends(require_permission("APPROVE_CONTAINMENT")),
+    db: Session = Depends(get_db),
+):
+    rows = db.scalars(
+        select(ApprovalRequest)
+        .where(ApprovalRequest.status == status)
+        .order_by(ApprovalRequest.created_at)
+    ).all()
+    return [
+        {
+            "id": row.id,
+            "action_type": row.action_type,
+            "target_type": row.target_type,
+            "target_id": row.target_id,
+            "requester_id": row.requester_id,
+            "required_approvals": row.required_approvals,
+            "approvals": row.approvals,
+            "status": row.status,
+            "reason": row.reason,
+            "created_at": row.created_at,
+        }
+        for row in rows
+    ]
+
+
 @router.post("/approvals/{approval_id}/approve")
 def approve(
     approval_id: uuid.UUID, body: ApprovalInput, request: Request,
