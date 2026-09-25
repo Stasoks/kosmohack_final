@@ -26,7 +26,8 @@ class Duration(ContractModel):
 class Defect(ContractModel):
     defect_type: str = Field(min_length=1, max_length=128)
     description: str | None = Field(default=None, max_length=2000)
-    severity: Literal["minor", "major", "critical"] | None = None
+    severity: str | None = Field(default=None, max_length=32)
+    confidence: float | None = Field(default=None, ge=0, le=1)
     component_instance_id: str | None = Field(default=None, max_length=128)
 
 
@@ -35,7 +36,7 @@ class ItemRegisteredPayload(ContractModel):
     revision: str = Field(min_length=1, max_length=64)
     line_id: str | None = Field(default=None, max_length=128)
     route_id: str | None = Field(default=None, max_length=128)
-    route_revision: int | None = Field(default=None, ge=1)
+    route_revision: int | str | None = None
 
 
 class OperationStartedPayload(ContractModel):
