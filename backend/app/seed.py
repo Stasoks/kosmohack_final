@@ -232,6 +232,9 @@ def seed() -> None:
             for number in range(1, 11):
                 sources[f"LOAD-MES-{number:02d}"] = ("mes", ["item.registered"])
             for source_id, (source_type, allowed) in sources.items():
+                auth_method = "HMAC_V1" if source_id == "CALIBRATION-01" else "shared_secret_legacy"
+                hmac_key_id = source_id if auth_method == "HMAC_V1" else None
+                legacy_token_hash = None if auth_method == "HMAC_V1" else token_hash(token)
                 source = db.get(EventSource, source_id)
                 if source is None:
                     db.add(
@@ -240,16 +243,21 @@ def seed() -> None:
                             source_type=source_type,
                             enabled=True,
                             status="ACTIVE",
-                            auth_method="HMAC_V1" if source_id == "CALIBRATION-01" else "shared_secret_legacy",
-                            token_hash=token_hash(token),
+                            auth_method=auth_method,
+                            token_hash=legacy_token_hash,
+                            key_id=hmac_key_id,
+                            secret_env_name="SOURCE_HMAC_SECRETS_JSON" if hmac_key_id else None,
                             allowed_event_types=allowed,
                         )
                     )
                 else:
                     source.enabled = True
                     source.status = "ACTIVE"
+                    source.auth_method = auth_method
                     source.allowed_event_types = allowed
-                    source.token_hash = token_hash(token)
+                    source.token_hash = legacy_token_hash
+                    source.key_id = hmac_key_id
+                    source.secret_env_name = "SOURCE_HMAC_SECRETS_JSON" if hmac_key_id else None
         _get_or_create(
             db,
             IntegrationHealth,
