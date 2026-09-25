@@ -64,6 +64,8 @@ def compare_invariants(actual: Any, expected: Any, path: str = "$") -> list[str]
         if not isinstance(actual, dict):
             return [f"{path}: expected object, got {type(actual).__name__}"]
         for key, value in expected.items():
+            if key in {"description", "note"}:
+                continue
             if key not in actual:
                 failures.append(f"{path}.{key}: missing")
             else:

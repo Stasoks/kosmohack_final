@@ -162,7 +162,7 @@ def test_item_level_ncr_is_not_cleared_by_component_only_good() -> None:
 def test_left_open_birth_window_records_missing_prior_trusted_inspection() -> None:
     defect = {
         "event_id": "D1",
-        "occurred_at": dt(30),
+        "occurred_at": NOW + timedelta(minutes=30),
         "defect_type": "surface_crack",
         "component_instance_id": "C1",
     }
