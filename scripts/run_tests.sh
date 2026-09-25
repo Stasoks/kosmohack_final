@@ -7,7 +7,7 @@ export TRACEQ_TEST_DATABASE_URL="${TRACEQ_TEST_DATABASE_URL:-postgresql+psycopg:
 
 section() { printf '\n== TRACE-Q: %s ==\n' "$1"; }
 unit() { section unit; uv run pytest -m "not postgres" backend/tests erp_emulator/tests; }
-postgres() { section postgres; uv run pytest -m postgres backend/tests; }
+postgres() { section postgres; RUN_POSTGRES_TESTS=1 uv run pytest -m postgres backend/tests; }
 scenarios() { section scenarios; uv run pytest backend/tests/test_scenarios_v2.py; }
 security() { section security; uv run pytest backend/tests/test_security.py backend/tests/test_security_extensions.py; }
 contracts() {
