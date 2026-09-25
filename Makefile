@@ -10,7 +10,7 @@ test-unit:
 	uv run pytest -m "not postgres"
 
 test-integration:
-	TRACEQ_TEST_DATABASE_URL="$${TRACEQ_TEST_DATABASE_URL}" uv run pytest -m postgres
+	RUN_POSTGRES_TESTS=1 TRACEQ_TEST_DATABASE_URL="${TRACEQ_TEST_DATABASE_URL}" uv run pytest -m postgres
 
 generate-contracts:
 	uv run python scripts/generate_contracts.py
