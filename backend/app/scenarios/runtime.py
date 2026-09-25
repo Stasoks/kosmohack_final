@@ -271,12 +271,14 @@ class ScenarioRuntime:
                             )
                         )
                 if str(value.get("status", "")).upper() == "ACTIVE":
-                    revision.status = "active"
-                    revision.immutable_after = revision.immutable_after or utcnow()
+                    # Fixture revisions are immutable once activated. Only activate a
+                    # freshly created/configured revision; never try to "rewind" an
+                    # immutable revision between scenario runs.
+                    if revision.immutable_after is None:
+                        revision.status = "active"
+                        revision.immutable_after = utcnow()
                     active_id = revision.id
-                elif revision.status == "active":
-                    revision.status = "draft"
-            if active_id is not None:
+            if route.active_revision_id is None and active_id is not None:
                 route.active_revision_id = active_id
 
     def _configure_trust_policies(self) -> None:
