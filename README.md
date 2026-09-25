@@ -19,8 +19,9 @@ Streamlit never connects to PostgreSQL. Authentication, RBAC, event validation, 
 Requirements: Docker with Compose, approximately 1 GB free RAM, and ports `8501`, `8080`, `8090`, and debug-only `55432` available on localhost.
 
 ```bash
-cp .env.example .env
-docker compose -f compose.yaml -f compose.demo.yaml up --build
+cp -n .env.example .env
+docker compose -f compose.yaml -f compose.demo.yaml up -d --build --wait
+bash scripts/local_smoke.sh
 ```
 
 Open <http://localhost:8501>. API documentation is available in demo mode at <http://localhost:8080/docs>.
@@ -78,6 +79,9 @@ PostgreSQL integration tests use `TRACEQ_TEST_DATABASE_URL`; SQLite is intention
 - [Scenarios](docs/scenarios.md)
 - [Vision-control design](docs/vision-control-design.md)
 - [Recovery](docs/recovery.md)
+- [Local runbook](docs/LOCAL_RUNBOOK.md)
+- [Module testing guide](docs/MODULE_TESTING.md)
+- [Pre-demo audit report](docs/AUDIT_REPORT.md)
 - [Assumptions and limitations](docs/assumptions.md)
 
 ## Current assumptions and boundaries
