@@ -190,3 +190,8 @@ def test_item_level_scope_requires_item_wide_component_coverage() -> None:
         "surface_crack",
         None,
     )
+
+
+def test_empty_component_scope_is_item_level_fallback() -> None:
+    scope = {"defect_types": ["surface_crack"], "components": []}
+    assert scope_covers(scope, "surface_crack", None)
