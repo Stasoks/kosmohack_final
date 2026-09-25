@@ -79,10 +79,7 @@ jobs:
       - name: Start complete demo stack
         run: docker compose -f compose.yaml -f compose.demo.yaml up -d --build --wait
       - name: Probe demo services
-        run: |
-          curl --fail --silent --show-error http://127.0.0.1:8080/health/live
-          curl --fail --silent --show-error http://127.0.0.1:8090/health
-          curl --fail --silent --show-error http://127.0.0.1:8501/_stcore/health
+        run: bash scripts/local_smoke.sh
       - name: Stop demo stack
         if: always()
         run: docker compose -f compose.yaml -f compose.demo.yaml down -v --remove-orphans
