@@ -1,5 +1,7 @@
 from pathlib import Path
 
+import pytest
+
 from backend.app.scenarios.harness import ScenarioBundle, compare_invariants
 
 
@@ -63,3 +65,40 @@ def test_harness_unwraps_request_and_tamper_step_collections():
 
     assert ScenarioHarness._rows({"requests": [{"request_id": "R1"}]}) == [{"request_id": "R1"}]
     assert ScenarioHarness._rows({"steps": [{"action": "VERIFY"}]}) == [{"action": "VERIFY"}]
+
+
+def test_compare_invariants_supports_alternatives_and_forbidden_members():
+    assert compare_invariants(401, [401, 403], "$.http_status") == []
+    assert compare_invariants([], ["bad claim"], "$.must_not_output") == []
+    assert compare_invariants(["bad claim"], ["bad claim"], "$.must_not_output")
+
+
+@pytest.mark.postgres
+@pytest.mark.skipif(
+    __import__("os").getenv("RUN_POSTGRES_TESTS") != "1",
+    reason="requires isolated PostgreSQL demo database",
+)
+def test_all_real_scenarios_execute_through_demo_api():
+    from fastapi.testclient import TestClient
+    from backend.app.main import app
+
+    client = TestClient(app)
+    login = client.post(
+        "/api/v1/auth/login",
+        json={"username": "controller", "password": "controller-demo"},
+    )
+    assert login.status_code == 200, login.text
+    headers = {"Authorization": f"Bearer {login.json()['access_token']}"}
+
+    failures = {}
+    for index in range(1, 26):
+        scenario_id = f"S{index:02d}"
+        response = client.post(
+            f"/api/v1/demo/scenarios/{scenario_id}/run",
+            headers=headers,
+        )
+        assert response.status_code == 200, f"{scenario_id}: {response.text}"
+        result = response.json()
+        if not result["passed"]:
+            failures[scenario_id] = result["failures"]
+    assert failures == {}

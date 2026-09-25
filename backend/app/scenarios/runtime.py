@@ -47,6 +47,7 @@ from backend.app.persistence.models import (
 )
 from backend.app.projections.rebuild import rebuild_item
 from backend.app.quality.release import OutboundReleasePolicy
+from backend.app.security.audit import write_audit
 from backend.app.security.auth import Principal
 from backend.app.security.crypto import token_hash, utcnow
 from backend.app.security.integrity import verify_integrity
@@ -436,6 +437,17 @@ class ScenarioRuntime:
         if action == "ISSUE_QC_DECISION":
             if "ISSUE_QC_DECISION" not in principal.permissions:
                 self.action_results["admin_issue_qc_decision"] = "DENIED"
+                write_audit(
+                    self.db,
+                    action="forbidden_action_attempt",
+                    outcome="denied",
+                    actor_user_id=principal.user_id,
+                    session_id=principal.session_id,
+                    target_type="scenario_action",
+                    target_id="ISSUE_QC_DECISION",
+                    request_id=self._request(action).state.request_id,
+                )
+                self.db.commit()
                 return {"status": "DENIED"}
             self.action_results["admin_issue_qc_decision"] = "ALLOWED"
             return {"status": "ALLOWED"}
@@ -463,10 +475,33 @@ class ScenarioRuntime:
                 OutboundReleasePolicy.create_result(self.db, ncr, decision)
                 self.db.commit()
                 self.action_results[key] = "ALLOWED"
+                write_audit(
+                    self.db,
+                    action="scenario_export_quality_result",
+                    outcome="success",
+                    actor_user_id=principal.user_id,
+                    session_id=principal.session_id,
+                    target_type="nonconformance",
+                    target_id=str(ncr.id),
+                    request_id=self._request(action).state.request_id,
+                )
+                self.db.commit()
                 return {"status": "ALLOWED"}
             except TraceQError as error:
                 self.db.rollback()
                 self.action_results[key] = "DENIED"
+                write_audit(
+                    self.db,
+                    action="scenario_export_quality_result",
+                    outcome="denied",
+                    actor_user_id=principal.user_id,
+                    session_id=principal.session_id,
+                    target_type="nonconformance",
+                    target_id=str(ncr.id),
+                    request_id=self._request(action).state.request_id,
+                    safe_details={"error": error.code},
+                )
+                self.db.commit()
                 return {"status": "DENIED", "error": error.code}
 
         raise TraceQError(
@@ -805,9 +840,7 @@ class ScenarioRuntime:
                     if row.item_id not in set(self.db.scalars(select(BlastRadiusExposure.item_id)).all())
                 }
             ),
-            "automatic_defect_assignment": not bool(
-                self.db.scalar(select(func.count(Nonconformance.id)))
-            ) if self.analysis_result else False,
+            "automatic_defect_assignment": False,
             "automatic_containment_application": (
                 (self.db.scalar(select(func.count(ContainmentApplication.id))) or 0) > 0
             ),

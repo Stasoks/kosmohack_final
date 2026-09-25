@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass, field
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable
 
@@ -68,8 +69,14 @@ def compare_invariants(actual: Any, expected: Any, path: str = "$") -> list[str]
             else:
                 failures.extend(compare_invariants(actual[key], value, f"{path}.{key}"))
     elif isinstance(expected, list):
-        if not isinstance(actual, list):
-            failures.append(f"{path}: expected list")
+        if path.endswith(".must_not_output") or path.endswith(".must_not_include"):
+            values = actual if isinstance(actual, list) else [actual]
+            for value in expected:
+                if value in values:
+                    failures.append(f"{path}: forbidden member present {value!r}")
+        elif not isinstance(actual, list):
+            if actual not in expected:
+                failures.append(f"{path}: expected one of {expected!r}, got {actual!r}")
         else:
             for value in expected:
                 if value not in actual:
@@ -160,13 +167,41 @@ class ScenarioHarness:
             else:
                 untriggered.append(row)
 
+        route_changes = self._rows(bundle.extras.get("route_change.json"))
+        pending_route_changes = list(route_changes)
+
+        def event_time(row: dict[str, Any]) -> datetime | None:
+            value = row.get("occurred_at")
+            if not value:
+                return None
+            return datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+
+        def activation_time(row: dict[str, Any]) -> datetime | None:
+            value = row.get("activation_time")
+            if not value:
+                return None
+            return datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+
         executed: set[int] = set()
         for index, event in enumerate(bundle.events, start=1):
+            current_time = event_time(event)
+            if current_time is not None:
+                ready = [
+                    row for row in pending_route_changes
+                    if activation_time(row) is not None and activation_time(row) <= current_time
+                ]
+                for row in ready:
+                    self.route_change(row)
+                    pending_route_changes.remove(row)
+
             self.deliver(event)
             for row in by_index.get(index, []):
                 self._execute_action(row, after_action=after_action, executed=executed)
             for row in by_event_id.get(str(event.get("event_id")), []):
                 self._execute_action(row, after_action=after_action, executed=executed)
+
+        for row in pending_route_changes:
+            self.route_change(row)
 
         # Historical bundles used after_event=0 for pre/post-independent actions.
         for row in by_index.get(0, []):
@@ -177,7 +212,6 @@ class ScenarioHarness:
         for name, handler in (
             ("requests.json", self.request),
             ("erp_behavior.json", self.erp),
-            ("route_change.json", self.route_change),
             ("analysis_request.json", self.analysis),
             ("tamper_actions.json", self.tamper),
         ):

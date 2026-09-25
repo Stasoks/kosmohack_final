@@ -11,5 +11,17 @@
       "nonconformance_id": "NC-S16",
       "disposition": "REWORK_REQUIRED"
     }
+  },
+  {
+    "after_event_id": "EV-S16-008",
+    "actor_id": "qc-01",
+    "action": "VERIFY_REWORK",
+    "target": {
+      "nonconformance_id": "NC-S16",
+      "item_id": "ITEM-S16"
+    },
+    "payload": {
+      "reason": "Повторный контроль снова обнаружил исходный дефект"
+    }
   }
 ]
