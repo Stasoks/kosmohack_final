@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import secrets
 import uuid
 
@@ -46,6 +47,7 @@ class SourceCreate(BaseModel):
     allowed_event_types: list[str] = Field(min_length=1)
     token: str | None = Field(default=None, min_length=24, max_length=512)
     auth_method: str = Field(default="shared_secret_legacy", pattern="^(shared_secret_legacy|HMAC_V1)$")
+    key_id: str | None = Field(default=None, min_length=1, max_length=128)
     allowed_line_ids: list[str] = Field(default_factory=list)
     allowed_station_ids: list[str] = Field(default_factory=list)
 
@@ -196,17 +198,37 @@ def create_source(
     request: Request,
     principal: Principal = Depends(require_permission("MANAGE_INTEGRATIONS")),
     db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
 ):
     if db.get(EventSource, body.source_id):
         raise TraceQError("SOURCE_EXISTS", "Source ID already exists", 409)
-    token = body.token or secrets.token_urlsafe(36)
+    token: str | None = None
+    key_id: str | None = None
+    token_hash_value: str | None = None
+    if body.auth_method == "HMAC_V1":
+        key_id = body.key_id or body.source_id
+        configured = {}
+        if settings.source_hmac_secrets_json:
+            configured = json.loads(settings.source_hmac_secrets_json.get_secret_value())
+        if not isinstance(configured, dict) or key_id not in configured:
+            raise TraceQError(
+                "HMAC_KEY_NOT_PROVISIONED",
+                "HMAC key_id must already exist in SOURCE_HMAC_SECRETS_JSON",
+                422,
+            )
+    else:
+        token = body.token or secrets.token_urlsafe(36)
+        token_hash_value = token_hash(token)
+
     source = EventSource(
         source_id=body.source_id,
         source_type=body.source_type,
         enabled=True,
-        token_hash=token_hash(token),
+        token_hash=token_hash_value,
         status="ACTIVE",
         auth_method=body.auth_method,
+        key_id=key_id,
+        secret_env_name="SOURCE_HMAC_SECRETS_JSON" if key_id else None,
         allowed_event_types=sorted(set(body.allowed_event_types)),
         allowed_line_ids=sorted(set(body.allowed_line_ids)),
         allowed_station_ids=sorted(set(body.allowed_station_ids)),
@@ -227,7 +249,12 @@ def create_source(
         },
     )
     db.commit()
-    return {"source_id": source.source_id, "token": token, "warning": "Token is shown only once"}
+    response = {"source_id": source.source_id, "auth_method": source.auth_method}
+    if token is not None:
+        response.update({"token": token, "warning": "Token is shown only once"})
+    else:
+        response.update({"key_id": source.key_id, "warning": "HMAC secret remains in the external secret store"})
+    return response
 
 
 @router.patch("/sources/{source_id}")
