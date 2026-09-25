@@ -29,6 +29,7 @@ from backend.app.persistence.models import (
     ProjectionState,
     RawEvent,
     Observation,
+    RouteStep,
     SecurityAlert,
     Station,
     TransportNonce,
@@ -161,10 +162,23 @@ def _resolve_event_scope(db: Session, event: Any, payload: dict[str, Any]) -> tu
             station_id = station_id or run.station_id
             item_id = item_id or run.item_id
 
+    item = None
     if item_id:
         item = db.get(Item, item_id)
         if item:
             line_id = line_id or item.line_id
+
+    if station_id is None and item and item.route_revision_id and payload.get("control_point_id"):
+        route_step = db.scalar(
+            select(RouteStep)
+            .where(
+                RouteStep.route_revision_id == item.route_revision_id,
+                RouteStep.control_point_id == payload["control_point_id"],
+            )
+            .limit(1)
+        )
+        if route_step:
+            station_id = route_step.station_id
 
     equipment_id = payload.get("equipment_id")
     if station_id is None and equipment_id:
