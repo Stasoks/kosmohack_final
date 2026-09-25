@@ -79,7 +79,13 @@ def compare_invariants(actual: Any, expected: Any, path: str = "$") -> list[str]
                 failures.append(f"{path}: expected one of {expected!r}, got {actual!r}")
         else:
             for value in expected:
-                if value not in actual:
+                if isinstance(value, (dict, list)):
+                    if not any(
+                        not compare_invariants(candidate, value, f"{path}[*]")
+                        for candidate in actual
+                    ):
+                        failures.append(f"{path}: missing matching member {value!r}")
+                elif value not in actual:
                     failures.append(f"{path}: missing member {value!r}")
     elif actual != expected:
         failures.append(f"{path}: expected {expected!r}, got {actual!r}")

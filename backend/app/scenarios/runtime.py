@@ -130,6 +130,7 @@ class ScenarioRuntime:
         self.accepted = 0
         self.duplicates = 0
         self.deliveries = 0
+        self.delivery_results: list[str] = []
         self.request_results: dict[str, Any] = {}
         self.action_results: dict[str, Any] = {}
         self.ncr_aliases: dict[str, uuid.UUID] = {}
@@ -336,13 +337,19 @@ class ScenarioRuntime:
         self.deliveries += 1
         event = self._prepare_event(value)
         token = self.settings.source_demo_token
-        result = ingest_event(
-            self.db,
-            event,
-            header_source_id=event["source"]["source_id"],
-            source_token=token.get_secret_value() if token else None,
-            settings=self.settings,
-        )
+        try:
+            result = ingest_event(
+                self.db,
+                event,
+                header_source_id=event["source"]["source_id"],
+                source_token=token.get_secret_value() if token else None,
+                settings=self.settings,
+            )
+        except TraceQError as error:
+            self.delivery_results.append(f"{error.status_code} {error.code}")
+            return {"error": error.code, "status_code": error.status_code}
+
+        self.delivery_results.append(result.ingestion_status)
         if result.ingestion_status == "accepted":
             self.accepted += 1
         elif result.ingestion_status == "duplicate":
@@ -788,8 +795,11 @@ class ScenarioRuntime:
                             "type": row.evidence_type,
                             "role": row.evidence_role,
                             "source_event_id": row.source_event_id,
-                            "source_entity_id": row.source_entity_id
-                            or (row.details or {}).get("operation_run_id"),
+                            "source_entity_id": (
+                                (row.details or {}).get("operation_run_id")
+                                if row.evidence_type == "OPERATION_IN_WINDOW"
+                                else row.source_entity_id
+                            ),
                         }
                     )
 
@@ -971,6 +981,12 @@ class ScenarioRuntime:
             actual["missing_control_point"] = (
                 (missing.details or {}).get("control_point_id") if missing else None
             )
+
+        if self.scenario_id == "S14":
+            item = self.db.get(Item, "ITEM-S14")
+            actual["first_delivery"] = self.delivery_results[0] if self.delivery_results else None
+            actual["second_delivery"] = self.delivery_results[1] if len(self.delivery_results) > 1 else None
+            actual["stored_revision"] = item.revision if item else None
 
         if self.scenario_id == "S15":
             run = self.db.get(OperationRun, "RUN-S15-MILL")
