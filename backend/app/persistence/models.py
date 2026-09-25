@@ -484,6 +484,22 @@ class BlastRadiusExposure(Base):
     proposed_action: Mapped[str] = mapped_column(String(32), default="REVIEW_REQUIRED")
 
 
+class ContainmentApplication(Base):
+    __tablename__ = "containment_applications"
+    id: Mapped[uuid.UUID] = uuid_pk()
+    proposal_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("containment_proposals.id"), index=True)
+    blast_radius_query_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("blast_radius_queries.id"), index=True)
+    exposure_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("blast_radius_exposures.id"), index=True)
+    item_id: Mapped[str] = mapped_column(String(128), index=True)
+    action: Mapped[str] = mapped_column(String(32))
+    approval_request_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("approval_requests.id"), index=True)
+    approved_by: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), index=True)
+    applied_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    __table_args__ = (
+        UniqueConstraint("proposal_id", "item_id", name="uq_containment_application_proposal_item"),
+    )
+
+
 class ApprovalRequest(Base):
     __tablename__ = "approval_requests"
     id: Mapped[uuid.UUID] = uuid_pk()
