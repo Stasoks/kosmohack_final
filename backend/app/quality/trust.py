@@ -65,9 +65,9 @@ def scope_covers(
     defects = inspection_scope.get("defect_types", ["*"])
     components = inspection_scope.get("component_instance_ids", inspection_scope.get("components", ["*"]))
     defect_ok = "*" in defects or defect_type in defects
-    component_ok = (
-        component_instance_id is None
-        or "*" in components
-        or component_instance_id in components
-    )
+    if component_instance_id is None:
+        # Item-level/unknown-component defects need item-wide component coverage.
+        component_ok = "*" in components
+    else:
+        component_ok = "*" in components or component_instance_id in components
     return defect_ok and component_ok
