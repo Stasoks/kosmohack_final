@@ -37,6 +37,7 @@ jobs:
       RUN_POSTGRES_TESTS: "1"
       TRACEQ_TEST_DATABASE_URL: postgresql+psycopg://traceq_test:traceq_test@localhost:5432/traceq_test
       DATABASE_URL: postgresql+psycopg://traceq_test:traceq_test@localhost:5432/traceq_test
+      MIGRATION_DATABASE_URL: postgresql+psycopg://traceq_test:traceq_test@localhost:5432/traceq_test
       JWT_SIGNING_SECRET: test-jwt-secret-at-least-32-bytes-long
       AES_DATA_KEY_B64: MDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDA=
       INTEGRITY_HMAC_KEY_B64: MTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTE=
