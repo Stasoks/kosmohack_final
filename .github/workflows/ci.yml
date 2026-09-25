@@ -65,3 +65,23 @@ jobs:
       - run: alembic upgrade head
       - run: python -m backend.app.seed
       - run: pytest -m postgres backend/tests
+
+
+  docker-demo-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    steps:
+      - uses: actions/checkout@v4
+      - run: cp .env.example .env
+      - name: Validate Compose model
+        run: docker compose -f compose.yaml -f compose.demo.yaml config -q
+      - name: Start complete demo stack
+        run: docker compose -f compose.yaml -f compose.demo.yaml up -d --build --wait
+      - name: Probe demo services
+        run: |
+          curl --fail --silent --show-error http://127.0.0.1:8080/health/live
+          curl --fail --silent --show-error http://127.0.0.1:8090/health
+          curl --fail --silent --show-error http://127.0.0.1:8501/_stcore/health
+      - name: Stop demo stack
+        if: always()
+        run: docker compose -f compose.yaml -f compose.demo.yaml down -v --remove-orphans

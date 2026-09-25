@@ -39,9 +39,9 @@ Never reuse these credentials or the demo crypto keys outside the demo profile. 
 
 ## Demo scenarios
 
-Log in as any demo user, open **Scenario Runner**, reset demo data, and run `S03`. Then log in as `controller`, open **Решения QC**, and confirm the NCR with `REWORK_REQUIRED` and `HOLD`.
+Log in as any demo user and open **Scenario Runner**. The runner executes the same S01-S25 acceptance bundles used by PostgreSQL CI, including optional action/request/ERP/tamper/route files, then compares normalized business state with `expected.json`.
 
-For the full demonstration sequence, including ERP timeout/recovery and tamper detection, see [docs/scenarios.md](docs/scenarios.md).
+Useful demo points: `S03` shows a bounded Defect Birth Window, `S08` runs controller decision → rework → repeat inspection → release, `S19` demonstrates stable-message-ID outbox retry, and `S09` demonstrates tamper detection. See [docs/scenarios.md](docs/scenarios.md).
 
 ## Tests and contracts
 
@@ -54,7 +54,7 @@ For the full demonstration sequence, including ERP timeout/recovery and tamper d
 ./scripts/run_tests.sh all
 ```
 
-PostgreSQL integration tests use `TRACEQ_TEST_DATABASE_URL`; SQLite is intentionally not a supported integration fallback.
+PostgreSQL integration tests use `TRACEQ_TEST_DATABASE_URL`; SQLite is intentionally not a supported integration fallback. CI also regenerates the Pydantic event models from the canonical JSON Schema in check mode, validates all 133 contract fixtures, runs S01-S25 through the real demo API, and performs a bounded Docker Compose demo smoke test.
 
 ## What to show during review
 
@@ -92,4 +92,4 @@ PostgreSQL integration tests use `TRACEQ_TEST_DATABASE_URL`; SQLite is intention
 
 The canonical envelope owns `item_id` and `operation_run_id`; payloads do not duplicate them. Items pin a RouteRevision at registration. Source Registry supports lifecycle status, event/line/station scopes, legacy shared secrets and HMAC_V1 nonce replay protection. Server-side sessions revoke access immediately for critical actions. Rework requires a completed rework run, trusted repeat GOOD and controller verification before controlled outbound release. Evidence invalidation, Blast Radius proposals with separation of duties, S01-S25 Harness V2, occurrence-based KPI, security alerts, isolated test compose and optional hybrid-PQ profile metadata are included.
 
-Tests/build were prepared but intentionally not executed by the implementation agent.
+The CI workflow executes unit/contract tests, PostgreSQL integration tests, the full S01-S25 acceptance runner, Python compilation, and a bounded Docker Compose demo smoke test.

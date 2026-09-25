@@ -10,7 +10,7 @@ Endpoints check effective permissions, not role strings. In particular, `admin` 
 
 Canonical plaintext events are encrypted with AES-256-GCM using a unique 96-bit nonce. AAD binds event ID/type, source, schema version, and server receive time. The database stores ciphertext, nonce, crypto profile, key ID, and key version; the key comes from environment/Docker secrets and is not stored in Git, the DB, or the image.
 
-Each stable source stream carries an HMAC-SHA-256 chain over the previous MAC, immutable metadata, ciphertext, nonce, and key ID. The HMAC secret is distinct from the AES key and outside the DB. Stream row locking assigns sequence/MAC atomically. Integrity failure marks the stream and blocks new decisions using affected evidence; old decisions remain historical facts.
+Each stable source stream carries an HMAC-SHA-256 chain over the previous MAC, immutable metadata, ciphertext, nonce, and key ID. Audit entries use a separate serialized HMAC chain over their immutable audit payload. The HMAC secret is distinct from the AES key and outside the DB. Integrity verification checks both raw-event and audit chains, raises security alerts on mismatch, and raw-stream failure blocks new decisions using affected evidence; old decisions remain historical facts.
 
 The runtime DB role has no UPDATE/DELETE grant on raw events, controller decisions, audit, integration history, or analysis versions/evidence. Owner-level PostgreSQL triggers provide a second append-only guard. The demo-only privileged endpoint is registered only when `DEMO_MODE=true` and deliberately flips a ciphertext bit so verification can demonstrate detection.
 

@@ -9,8 +9,11 @@
 - Component structure may be unavailable. Item-level registration, NCR, and disposition still work.
 - Fixture adapters are not claims of compatibility with an unknown customer installation; real endpoints, auth, schemas, and TLS roots must be supplied during site integration.
 - The demo profile exposes localhost API/ERP/PostgreSQL debug ports. Production-like Compose keeps the DB internal and requires an HTTPS boundary.
-- Evidence invalidation and blast-radius automation are planned score-boost extensions after the stable P0 path; their event/model boundaries are documented in the master plan but are not misrepresented as completed industrial functions.
+- Evidence invalidation and Blast Radius are implemented in the MVP, but Blast Radius remains proposal-first: it does not create defects or apply containment until the explicit approval workflow completes.
+- The HMAC_V1 demo transport is not an mTLS replacement.
+- Vendor KOMPAS/ERP/MES transports remain site-specific adapters because the case does not provide production endpoint/authentication specifications.
+- `HYBRID_PQ_V1` remains an optional profile boundary. The default tested path is classical AES-256-GCM/HMAC-SHA256 with ECDSA-P256 checkpoint support; ML-DSA-65 must not be claimed as runtime-verified unless the optional library and keys are actually installed and exercised.
 
-## Prepared, not executed
+## Verification status
 
-The implementation includes migrations, unit/PostgreSQL/security/scenario tests, Compose profiles, CI and benchmark tools. They were intentionally not executed by the implementation agent. The HMAC_V1 demo transport is not an mTLS replacement; PQ checkpoint support is optional; vendor KOMPAS/ERP bridges remain site-specific adapters.
+CI executes deterministic contract generation checks, 133 contract fixtures, unit/security tests, PostgreSQL integration tests, S01-S25 through the real demo API, Python compilation, and a bounded Docker Compose demo smoke job. A green workflow is the evidence for a tested revision; documentation alone is not treated as proof.
