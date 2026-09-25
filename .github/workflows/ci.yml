@@ -34,6 +34,7 @@ jobs:
           --health-interval 3s --health-timeout 3s --health-retries 20
     env:
       ENVIRONMENT: test
+      DEMO_MODE: "true"
       RUN_POSTGRES_TESTS: "1"
       TRACEQ_TEST_DATABASE_URL: postgresql+psycopg://traceq_app:traceq_app@localhost:5432/traceq_test
       DATABASE_URL: postgresql+psycopg://traceq_app:traceq_app@localhost:5432/traceq_test
@@ -41,6 +42,13 @@ jobs:
       JWT_SIGNING_SECRET: test-jwt-secret-at-least-32-bytes-long
       AES_DATA_KEY_B64: MDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDA=
       INTEGRITY_HMAC_KEY_B64: MTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTE=
+      DEMO_PRIVILEGED_DATABASE_URL: postgresql+psycopg://traceq_test:traceq_test@localhost:5432/traceq_test
+      SOURCE_DEMO_TOKEN: demo-source-token-change-me
+      DEMO_CONTROLLER_PASSWORD: controller-demo
+      DEMO_MASTER_PASSWORD: master-demo
+      DEMO_TECHNOLOGIST_PASSWORD: technologist-demo
+      DEMO_MANAGER_PASSWORD: manager-demo
+      DEMO_ADMIN_PASSWORD: admin-demo
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -55,4 +63,5 @@ jobs:
           fi
           psql -h localhost -U traceq_test -d traceq_test -v ON_ERROR_STOP=1 -c "GRANT CONNECT ON DATABASE traceq_test TO traceq_app"
       - run: alembic upgrade head
+      - run: python -m backend.app.seed
       - run: pytest -m postgres backend/tests

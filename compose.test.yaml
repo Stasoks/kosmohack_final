@@ -31,18 +31,47 @@ services:
     depends_on:
       postgres-test: {condition: service_healthy}
 
+  seed-test:
+    build:
+      context: .
+      dockerfile: docker/python.Dockerfile
+    environment:
+      ENVIRONMENT: test
+      DEMO_MODE: "true"
+      DATABASE_URL: postgresql+psycopg://traceq_app:traceq_app@postgres-test:5432/traceq_test
+      JWT_SIGNING_SECRET: test-jwt-secret-at-least-32-bytes-long
+      AES_DATA_KEY_B64: MDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDA=
+      INTEGRITY_HMAC_KEY_B64: MTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTE=
+      SOURCE_DEMO_TOKEN: demo-source-token-change-me
+      DEMO_CONTROLLER_PASSWORD: controller-demo
+      DEMO_MASTER_PASSWORD: master-demo
+      DEMO_TECHNOLOGIST_PASSWORD: technologist-demo
+      DEMO_MANAGER_PASSWORD: manager-demo
+      DEMO_ADMIN_PASSWORD: admin-demo
+    command: ["python", "-m", "backend.app.seed"]
+    depends_on:
+      migrate-test: {condition: service_completed_successfully}
+
   postgres-tests:
     build:
       context: .
       dockerfile: docker/python.Dockerfile
     environment:
       ENVIRONMENT: test
+      DEMO_MODE: "true"
       RUN_POSTGRES_TESTS: "1"
       TRACEQ_TEST_DATABASE_URL: postgresql+psycopg://traceq_app:traceq_app@postgres-test:5432/traceq_test
       DATABASE_URL: postgresql+psycopg://traceq_app:traceq_app@postgres-test:5432/traceq_test
       JWT_SIGNING_SECRET: test-jwt-secret-at-least-32-bytes-long
       AES_DATA_KEY_B64: MDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDA=
       INTEGRITY_HMAC_KEY_B64: MTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTE=
+      DEMO_PRIVILEGED_DATABASE_URL: postgresql+psycopg://traceq_test:traceq_test@postgres-test:5432/traceq_test
+      SOURCE_DEMO_TOKEN: demo-source-token-change-me
+      DEMO_CONTROLLER_PASSWORD: controller-demo
+      DEMO_MASTER_PASSWORD: master-demo
+      DEMO_TECHNOLOGIST_PASSWORD: technologist-demo
+      DEMO_MANAGER_PASSWORD: manager-demo
+      DEMO_ADMIN_PASSWORD: admin-demo
     command: ["./scripts/run_tests.sh", "postgres"]
     depends_on:
-      migrate-test: {condition: service_completed_successfully}
+      seed-test: {condition: service_completed_successfully}
