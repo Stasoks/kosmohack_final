@@ -97,12 +97,15 @@ def _parse_transport_time(value: str) -> datetime:
         raise TraceQError("SOURCE_AUTH_FAILED", "Invalid source timestamp", 401) from exc
 
 
-def _hmac_secret(settings: Settings, source_id: str) -> str | None:
+def _hmac_secret(settings: Settings, source: EventSource) -> str | None:
     if settings.source_hmac_secrets_json:
         values = json.loads(settings.source_hmac_secrets_json.get_secret_value())
-        if isinstance(values, dict) and source_id in values:
-            return str(values[source_id])
-    return settings.source_demo_token.get_secret_value() if settings.demo_mode and settings.source_demo_token else None
+        if isinstance(values, dict):
+            lookup_key = source.key_id or source.source_id
+            value = values.get(lookup_key)
+            if value is not None:
+                return str(value)
+    return None
 
 
 def _authenticate_source(
@@ -132,7 +135,7 @@ def _authenticate_source(
             _alert(db, "REPLAY_ATTEMPT", source_id)
             db.commit()
             raise TraceQError("REPLAY_ATTEMPT", "Transport nonce has already been used", 409)
-        secret = _hmac_secret(settings, source_id)
+        secret = _hmac_secret(settings, source)
         if not secret:
             raise TraceQError("KEY_UNAVAILABLE", "Source authentication key is unavailable", 503)
         signed = source_timestamp.encode() + b"\n" + source_nonce.encode() + b"\n" + canonical_json_bytes(body)
