@@ -1,0 +1,17 @@
+{
+  "scenario_id": "S15",
+  "title": "Out-of-order delivery операции",
+  "priority": "P0",
+  "purpose": "Проверяет deterministic replay: finish доставлен раньше start, но projection строится по occurred_at.",
+  "test_targets": [
+    "out-of-order",
+    "event-time sorting",
+    "deterministic projection"
+  ],
+  "input_files": [
+    "events.jsonl"
+  ],
+  "expected_file": "expected.json",
+  "delivery_semantics": "Порядок строк в events.jsonl = порядок доставки. occurred_at = производственное время.",
+  "notes": "received_at назначает TRACE-Q; expected.json описывает бизнес-результат, а не внутреннюю реализацию."
+}

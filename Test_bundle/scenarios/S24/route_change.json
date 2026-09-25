@@ -1,0 +1,8 @@
+{
+  "action": "ACTIVATE_ROUTE_REVISION",
+  "route_id": "ROUTE-A",
+  "from_revision": "v1",
+  "to_revision": "v2",
+  "activation_time": "2026-09-25T22:55:00Z",
+  "actor_id": "admin-01"
+}

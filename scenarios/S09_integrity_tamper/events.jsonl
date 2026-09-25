@@ -1,1 +1,0 @@
-{"event_id":"S09-E01","event_type":"item.registered","schema_version":"1.0","occurred_at":"2026-09-25T17:00:00Z","source":{"source_id":"MES-01","source_type":"mes","sequence":90},"item_id":"ITEM-S09","payload":{"item_id":"ITEM-S09","product_definition_id":"PD-TRACE-01","revision":"A","line_id":"LINE-A","route_id":"ROUTE-DEFAULT"}}

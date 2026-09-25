@@ -1,0 +1,20 @@
+{
+  "version": "1.0",
+  "project_assumptions": {
+    "min_confidence": 0.85,
+    "note": "Демонстрационный порог. В production настраивается и валидируется на данных заказчика."
+  },
+  "policies": [
+    {
+      "trust_policy_id": "TP-QC-DEFAULT-v1",
+      "allowed_observation_quality": [
+        "good"
+      ],
+      "confidence_required": true,
+      "min_confidence": 0.85,
+      "requires_valid_device": true,
+      "media_required": false,
+      "conflict_policy": "block"
+    }
+  ]
+}

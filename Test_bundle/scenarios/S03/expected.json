@@ -1,0 +1,45 @@
+{
+  "accepted_events": 8,
+  "ncr": {
+    "expected_status": "pending_review",
+    "defect_type": "surface_crack"
+  },
+  "birth_windows": [
+    {
+      "defect_type": "surface_crack",
+      "status": "BOUNDED",
+      "last_trusted_good": "EV-S03-004",
+      "first_trusted_defect": "EV-S03-008",
+      "operations_in_window": [
+        "RUN-S03-GRIND"
+      ]
+    }
+  ],
+  "evidence": [
+    {
+      "type": "LAST_TRUSTED_GOOD",
+      "source_event_id": "EV-S03-004",
+      "role": "BOUNDARY"
+    },
+    {
+      "type": "FIRST_TRUSTED_DEFECT",
+      "source_event_id": "EV-S03-008",
+      "role": "BOUNDARY"
+    },
+    {
+      "type": "OPERATION_IN_WINDOW",
+      "source_entity_id": "RUN-S03-GRIND",
+      "role": "CONTEXT"
+    },
+    {
+      "type": "MACHINE_WARNING",
+      "source_event_id": "EV-S03-006",
+      "role": "CONTEXT"
+    }
+  ],
+  "root_cause_status": "not_established",
+  "must_not_output": [
+    "CNC-04 caused the defect",
+    "Operator caused the defect"
+  ]
+}

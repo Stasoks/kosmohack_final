@@ -1,0 +1,17 @@
+{
+  "scenario_id": "S10",
+  "title": "Противоречивые источники в одной контрольной точке",
+  "priority": "P0",
+  "purpose": "Проверяет equal-priority conflict: GOOD и DEFECT не должны автоматически разрешаться по большей confidence.",
+  "test_targets": [
+    "CONFLICTED",
+    "needs_extra_check",
+    "no trusted boundary"
+  ],
+  "input_files": [
+    "events.jsonl"
+  ],
+  "expected_file": "expected.json",
+  "delivery_semantics": "Порядок строк в events.jsonl = порядок доставки. occurred_at = производственное время.",
+  "notes": "received_at назначает TRACE-Q; expected.json описывает бизнес-результат, а не внутреннюю реализацию."
+}

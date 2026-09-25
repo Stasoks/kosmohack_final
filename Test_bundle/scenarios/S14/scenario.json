@@ -1,0 +1,16 @@
+{
+  "scenario_id": "S14",
+  "title": "Одинаковый event_id с другим содержимым",
+  "priority": "P0",
+  "purpose": "Проверяет защиту от подмены/idempotency conflict: второй delivery должен быть отклонён, оригинал не меняется.",
+  "test_targets": [
+    "EVENT_ID_CONFLICT",
+    "immutable original"
+  ],
+  "input_files": [
+    "events.jsonl"
+  ],
+  "expected_file": "expected.json",
+  "delivery_semantics": "Порядок строк в events.jsonl = порядок доставки. occurred_at = производственное время.",
+  "notes": "received_at назначает TRACE-Q; expected.json описывает бизнес-результат, а не внутреннюю реализацию."
+}

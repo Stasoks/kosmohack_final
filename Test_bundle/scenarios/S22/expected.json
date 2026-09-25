@@ -1,0 +1,7 @@
+{
+  "admin_issue_qc_decision": "DENIED",
+  "export_before_controller_disposition": "DENIED",
+  "controller_decision": "ALLOWED",
+  "export_after_disposition": "ALLOWED",
+  "audit_entries_required": 4
+}

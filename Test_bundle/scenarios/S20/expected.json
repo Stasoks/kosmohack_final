@@ -1,0 +1,9 @@
+{
+  "http_status": [
+    401,
+    403
+  ],
+  "raw_event_count_delta": 0,
+  "ncr_count_delta": 0,
+  "security_alert": "SOURCE_NOT_AUTHORIZED"
+}

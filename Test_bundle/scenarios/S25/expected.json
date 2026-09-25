@@ -1,0 +1,15 @@
+{
+  "population_items": 6,
+  "inspected_items": 6,
+  "assessable_inspected_items": 5,
+  "items_with_confirmed_nonconformities": 3,
+  "unique_confirmed_defect_occurrences": 4,
+  "confirmed_defects_by_type": {
+    "surface_crack": 3,
+    "scratch_or_gouge": 1
+  },
+  "rework_count": 1,
+  "rework_item_count": 1,
+  "rejected_signal_must_not_count_as_confirmed_nc": true,
+  "note": "FPY denominator зависит от определения completed route. Для этого fixture проверять только если тестовый harness помечает все 6 изделий завершившими route."
+}

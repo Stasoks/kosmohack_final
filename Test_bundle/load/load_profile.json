@@ -1,0 +1,34 @@
+{
+  "purpose": "Конфигурация для генератора нагрузочных данных; не обязана сама являться входным event stream.",
+  "seed": 20260925,
+  "items": 1000,
+  "route_id": "ROUTE-A",
+  "route_revision": "v1",
+  "source_count": 4,
+  "probabilities": {
+    "defect": 0.04,
+    "poor_observation": 0.02,
+    "impossible_to_assess": 0.01,
+    "duplicate_delivery": 0.02,
+    "late_delivery": 0.03,
+    "machine_warning": 0.05
+  },
+  "load_runs": [
+    {
+      "workers": 1,
+      "target_events": 10000
+    },
+    {
+      "workers": 4,
+      "target_events": 50000
+    }
+  ],
+  "measure": [
+    "accepted_events_per_sec",
+    "p95_ingestion_latency_ms",
+    "projection_backlog",
+    "projection_failures",
+    "duplicate_count",
+    "consistency_pass_rate"
+  ]
+}

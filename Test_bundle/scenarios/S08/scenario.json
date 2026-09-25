@@ -1,0 +1,19 @@
+{
+  "scenario_id": "S08",
+  "title": "Успешный rework lifecycle",
+  "priority": "P0",
+  "purpose": "Проверяет полный lifecycle: confirmed NCR не исчезает, создаётся R2, повторный GOOD позволяет закрыть incident и выпустить изделие.",
+  "test_targets": [
+    "controller decision",
+    "rework linking",
+    "verification",
+    "release"
+  ],
+  "input_files": [
+    "events.jsonl",
+    "actions.json"
+  ],
+  "expected_file": "expected.json",
+  "delivery_semantics": "Порядок строк в events.jsonl = порядок доставки. occurred_at = производственное время.",
+  "notes": "received_at назначает TRACE-Q; expected.json описывает бизнес-результат, а не внутреннюю реализацию."
+}

@@ -1,0 +1,17 @@
+{
+  "potentially_affected": [
+    "ITEM-S18-A",
+    "ITEM-S18-B",
+    "ITEM-S18-C"
+  ],
+  "must_not_include": [
+    "ITEM-S18-D"
+  ],
+  "automatic_defect_assignment": false,
+  "automatic_containment_application": false,
+  "proposal_actions": [
+    "REVIEW_REQUIRED",
+    "REINSPECTION_REQUIRED",
+    "HOLD"
+  ]
+}

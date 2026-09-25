@@ -1,0 +1,18 @@
+{
+  "scenario_id": "S07",
+  "title": "Поздний GOOD сужает уже построенное окно",
+  "priority": "P0",
+  "purpose": "Проверяет event-time semantics: поздно доставленный, но более поздний по occurred_at trusted GOOD создаёт новую AnalysisVersion и сужает Birth Window.",
+  "test_targets": [
+    "late event",
+    "deterministic replay",
+    "AnalysisVersion",
+    "Birth Window recompute"
+  ],
+  "input_files": [
+    "events.jsonl"
+  ],
+  "expected_file": "expected.json",
+  "delivery_semantics": "Порядок строк в events.jsonl = порядок доставки. occurred_at = производственное время.",
+  "notes": "received_at назначает TRACE-Q; expected.json описывает бизнес-результат, а не внутреннюю реализацию."
+}

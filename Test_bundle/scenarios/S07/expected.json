@@ -1,0 +1,22 @@
+{
+  "analysis_versions": [
+    {
+      "version": 1,
+      "last_trusted_good": "EV-S07-002",
+      "first_trusted_defect": "EV-S07-008",
+      "operations_in_window": [
+        "RUN-S07-MILL",
+        "RUN-S07-GRIND"
+      ]
+    },
+    {
+      "version": 2,
+      "last_trusted_good": "EV-S07-006",
+      "first_trusted_defect": "EV-S07-008",
+      "operations_in_window": [
+        "RUN-S07-GRIND"
+      ]
+    }
+  ],
+  "raw_history_rewritten": false
+}

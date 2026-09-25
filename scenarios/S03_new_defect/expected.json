@@ -1,1 +1,0 @@
-{"description":"Новый дефект с ограниченным Defect Birth Window","item_id":"ITEM-S03","ncr_count":1,"latest_analysis_status":"BOUNDED","verdict":"pending_review","evidence_types":["LAST_TRUSTED_GOOD","FIRST_TRUSTED_DEFECT","OPERATION_IN_WINDOW"]}

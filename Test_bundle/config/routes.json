@@ -1,0 +1,168 @@
+{
+  "routes": [
+    {
+      "route_id": "ROUTE-A",
+      "revision": "v1",
+      "status": "ACTIVE",
+      "steps": [
+        {
+          "position": 1,
+          "operation_id": "OP-MILL",
+          "station_id": "ST-MILL-01",
+          "control_point": {
+            "control_point_id": "CP-POST-MILL",
+            "required": true,
+            "trust_policy_id": "TP-QC-DEFAULT-v1",
+            "inspection_scope": {
+              "components": [
+                "COMP-HOUSING-1"
+              ],
+              "defect_types": [
+                "surface_crack",
+                "scratch_or_gouge",
+                "dent_or_deformation",
+                "contamination"
+              ]
+            }
+          }
+        },
+        {
+          "position": 2,
+          "operation_id": "OP-GRIND",
+          "station_id": "ST-GRIND-01",
+          "control_point": {
+            "control_point_id": "CP-POST-GRIND",
+            "required": true,
+            "trust_policy_id": "TP-QC-DEFAULT-v1",
+            "inspection_scope": {
+              "components": [
+                "COMP-HOUSING-1"
+              ],
+              "defect_types": [
+                "surface_crack",
+                "scratch_or_gouge",
+                "dent_or_deformation",
+                "contamination"
+              ]
+            }
+          }
+        },
+        {
+          "position": 3,
+          "operation_id": "OP-FINAL",
+          "station_id": "ST-FINAL-01",
+          "control_point": {
+            "control_point_id": "CP-FINAL",
+            "required": true,
+            "trust_policy_id": "TP-QC-DEFAULT-v1",
+            "inspection_scope": {
+              "components": [
+                "COMP-HOUSING-1",
+                "COMP-BRACKET-1"
+              ],
+              "defect_types": [
+                "surface_crack",
+                "scratch_or_gouge",
+                "dent_or_deformation",
+                "contamination",
+                "missing_component",
+                "misplaced_component"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "route_id": "ROUTE-A",
+      "revision": "v2",
+      "status": "CANDIDATE",
+      "steps": [
+        {
+          "position": 1,
+          "operation_id": "OP-MILL",
+          "station_id": "ST-MILL-01",
+          "control_point": {
+            "control_point_id": "CP-POST-MILL",
+            "required": true,
+            "trust_policy_id": "TP-QC-DEFAULT-v1",
+            "inspection_scope": {
+              "components": [
+                "COMP-HOUSING-1"
+              ],
+              "defect_types": [
+                "surface_crack",
+                "scratch_or_gouge",
+                "dent_or_deformation",
+                "contamination"
+              ]
+            }
+          }
+        },
+        {
+          "position": 2,
+          "operation_id": "OP-GRIND",
+          "station_id": "ST-GRIND-01",
+          "control_point": {
+            "control_point_id": "CP-POST-GRIND",
+            "required": true,
+            "trust_policy_id": "TP-QC-DEFAULT-v1",
+            "inspection_scope": {
+              "components": [
+                "COMP-HOUSING-1"
+              ],
+              "defect_types": [
+                "surface_crack",
+                "scratch_or_gouge",
+                "dent_or_deformation",
+                "contamination"
+              ]
+            }
+          }
+        },
+        {
+          "position": 3,
+          "operation_id": "OP-CLEAN",
+          "station_id": "ST-CLEAN-01",
+          "control_point": {
+            "control_point_id": "CP-POST-CLEAN",
+            "required": false,
+            "trust_policy_id": "TP-QC-DEFAULT-v1",
+            "inspection_scope": {
+              "components": [
+                "COMP-HOUSING-1"
+              ],
+              "defect_types": [
+                "contamination"
+              ]
+            }
+          }
+        },
+        {
+          "position": 4,
+          "operation_id": "OP-FINAL",
+          "station_id": "ST-FINAL-01",
+          "control_point": {
+            "control_point_id": "CP-FINAL",
+            "required": true,
+            "trust_policy_id": "TP-QC-DEFAULT-v1",
+            "inspection_scope": {
+              "components": [
+                "COMP-HOUSING-1",
+                "COMP-BRACKET-1"
+              ],
+              "defect_types": [
+                "surface_crack",
+                "scratch_or_gouge",
+                "dent_or_deformation",
+                "contamination",
+                "missing_component",
+                "misplaced_component"
+              ]
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

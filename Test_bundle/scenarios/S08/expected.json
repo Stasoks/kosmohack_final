@@ -1,0 +1,11 @@
+{
+  "ncr": {
+    "id": "NC-S08",
+    "verdict": "confirmed",
+    "resolved_by": "rework",
+    "closed": true
+  },
+  "item_disposition": "RELEASED",
+  "rework_count_delta": 1,
+  "original_defect_preserved": true
+}

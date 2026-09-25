@@ -1,0 +1,18 @@
+{
+  "scenario_id": "S09",
+  "title": "Обнаружение подмены raw history",
+  "priority": "P0",
+  "purpose": "Проверяет tamper-evident хранение: после изменения ciphertext integrity verification обязана упасть.",
+  "test_targets": [
+    "AES/HMAC integrity",
+    "append-only audit",
+    "tamper demo"
+  ],
+  "input_files": [
+    "events.jsonl",
+    "tamper_actions.json"
+  ],
+  "expected_file": "expected.json",
+  "delivery_semantics": "Порядок строк в events.jsonl = порядок доставки. occurred_at = производственное время.",
+  "notes": "received_at назначает TRACE-Q; expected.json описывает бизнес-результат, а не внутреннюю реализацию."
+}

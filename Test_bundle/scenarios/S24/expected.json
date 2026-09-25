@@ -1,0 +1,9 @@
+{
+  "ITEM-S24-OLD": {
+    "route_revision": "v1"
+  },
+  "ITEM-S24-NEW": {
+    "route_revision": "v2"
+  },
+  "old_route_rewritten": false
+}

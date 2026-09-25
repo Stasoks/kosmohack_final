@@ -1,0 +1,5 @@
+{
+  "before_tamper": "OK",
+  "after_tamper": "INTEGRITY_FAILED",
+  "production_api_must_not_expose_tamper": true
+}

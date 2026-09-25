@@ -1,0 +1,465 @@
+{
+  "bundle_version": "1.0",
+  "created_for": "TRACE-Q КосмоХакатон 2026",
+  "format_notes": {
+    "events": "JSON Lines (.jsonl): одна строка = одно canonical event; порядок строк = порядок доставки.",
+    "occurred_at": "Производственное event time.",
+    "received_at": "Не входит в fixture: назначается TRACE-Q при фактическом приёме.",
+    "scenario_json": "Человеческое описание: что именно тестируется.",
+    "expected_json": "Ожидаемый бизнес-результат/oracle. Не требует конкретной структуры внутренних таблиц."
+  },
+  "baseline_config_files": [
+    "config/sources.json",
+    "config/trust_policies.json",
+    "config/routes.json",
+    "config/product_structure.json",
+    "config/users_roles.json",
+    "config/erp_profiles.json",
+    "config/test_source_secrets.json"
+  ],
+  "scenarios": [
+    {
+      "scenario_id": "S01",
+      "title": "Нормальный маршрут без дефектов",
+      "priority": "P0",
+      "purpose": "Проверяет happy path производства, trusted GOOD после операций, отсутствие ложного NCR и FPY.",
+      "test_targets": [
+        "route projection",
+        "trusted GOOD",
+        "no NCR",
+        "KPI first-pass yield"
+      ],
+      "input_files": [
+        "events.jsonl"
+      ],
+      "expected_file": "expected.json",
+      "delivery_semantics": "Порядок строк в events.jsonl = порядок доставки. occurred_at = производственное время.",
+      "notes": "received_at назначает TRACE-Q; expected.json описывает бизнес-результат, а не внутреннюю реализацию."
+    },
+    {
+      "scenario_id": "S02",
+      "title": "Входной дефект до производства",
+      "priority": "P0",
+      "purpose": "Проверяет входной брак: дефект подтверждён сигналом до операций, предыдущего trusted GOOD нет.",
+      "test_targets": [
+        "incoming defect",
+        "LEFT_OPEN Birth Window",
+        "no operation blamed"
+      ],
+      "input_files": [
+        "events.jsonl"
+      ],
+      "expected_file": "expected.json",
+      "delivery_semantics": "Порядок строк в events.jsonl = порядок доставки. occurred_at = производственное время.",
+      "notes": "received_at назначает TRACE-Q; expected.json описывает бизнес-результат, а не внутреннюю реализацию."
+    },
+    {
+      "scenario_id": "S03",
+      "title": "Новый дефект с bounded Birth Window",
+      "priority": "P0",
+      "purpose": "Главный P0-сценарий: trusted GOOD → операция → warning → trusted DEFECT. Warning является context, не доказанной причиной.",
+      "test_targets": [
+        "Birth Window",
+        "evidence roles",
+        "machine warning",
+        "no causal claim"
+      ],
+      "input_files": [
+        "events.jsonl"
+      ],
+      "expected_file": "expected.json",
+      "delivery_semantics": "Порядок строк в events.jsonl = порядок доставки. occurred_at = производственное время.",
+      "notes": "received_at назначает TRACE-Q; expected.json описывает бизнес-результат, а не внутреннюю реализацию."
+    },
+    {
+      "scenario_id": "S04",
+      "title": "Poor-quality GOOD нельзя использовать как границу",
+      "priority": "P0",
+      "purpose": "Проверяет TrustEvaluator: no_defect с poor quality не становится trusted GOOD.",
+      "test_targets": [
+        "TrustEvaluator",
+        "LEFT_OPEN",
+        "POOR_OBSERVATION limitation"
+      ],
+      "input_files": [
+        "events.jsonl"
+      ],
+      "expected_file": "expected.json",
+      "delivery_semantics": "Порядок строк в events.jsonl = порядок доставки. occurred_at = производственное время.",
+      "notes": "received_at назначает TRACE-Q; expected.json описывает бизнес-результат, а не внутреннюю реализацию."
+    },
+    {
+      "scenario_id": "S05",
+      "title": "Пропущенный обязательный контроль",
+      "priority": "P0",
+      "purpose": "Проверяет route-aware data gap: отсутствует required inspection после OP-MILL, окно не сужается искусственно.",
+      "test_targets": [
+        "route validation",
+        "MISSING_CHECK",
+        "Birth Window across two operations"
+      ],
+      "input_files": [
+        "events.jsonl"
+      ],
+      "expected_file": "expected.json",
+      "delivery_semantics": "Порядок строк в events.jsonl = порядок доставки. occurred_at = производственное время.",
+      "notes": "received_at назначает TRACE-Q; expected.json описывает бизнес-результат, а не внутреннюю реализацию."
+    },
+    {
+      "scenario_id": "S06",
+      "title": "Идемпотентность duplicate delivery",
+      "priority": "P0",
+      "purpose": "Проверяет, что повтор того же event_id с тем же canonical content не создаёт второй RawEvent, Observation или KPI.",
+      "test_targets": [
+        "duplicate handling",
+        "idempotency",
+        "KPI stability"
+      ],
+      "input_files": [
+        "events.jsonl"
+      ],
+      "expected_file": "expected.json",
+      "delivery_semantics": "Порядок строк в events.jsonl = порядок доставки. occurred_at = производственное время.",
+      "notes": "received_at назначает TRACE-Q; expected.json описывает бизнес-результат, а не внутреннюю реализацию."
+    },
+    {
+      "scenario_id": "S07",
+      "title": "Поздний GOOD сужает уже построенное окно",
+      "priority": "P0",
+      "purpose": "Проверяет event-time semantics: поздно доставленный, но более поздний по occurred_at trusted GOOD создаёт новую AnalysisVersion и сужает Birth Window.",
+      "test_targets": [
+        "late event",
+        "deterministic replay",
+        "AnalysisVersion",
+        "Birth Window recompute"
+      ],
+      "input_files": [
+        "events.jsonl"
+      ],
+      "expected_file": "expected.json",
+      "delivery_semantics": "Порядок строк в events.jsonl = порядок доставки. occurred_at = производственное время.",
+      "notes": "received_at назначает TRACE-Q; expected.json описывает бизнес-результат, а не внутреннюю реализацию."
+    },
+    {
+      "scenario_id": "S08",
+      "title": "Успешный rework lifecycle",
+      "priority": "P0",
+      "purpose": "Проверяет полный lifecycle: confirmed NCR не исчезает, создаётся R2, повторный GOOD позволяет закрыть incident и выпустить изделие.",
+      "test_targets": [
+        "controller decision",
+        "rework linking",
+        "verification",
+        "release"
+      ],
+      "input_files": [
+        "events.jsonl",
+        "actions.json"
+      ],
+      "expected_file": "expected.json",
+      "delivery_semantics": "Порядок строк в events.jsonl = порядок доставки. occurred_at = производственное время.",
+      "notes": "received_at назначает TRACE-Q; expected.json описывает бизнес-результат, а не внутреннюю реализацию."
+    },
+    {
+      "scenario_id": "S09",
+      "title": "Обнаружение подмены raw history",
+      "priority": "P0",
+      "purpose": "Проверяет tamper-evident хранение: после изменения ciphertext integrity verification обязана упасть.",
+      "test_targets": [
+        "AES/HMAC integrity",
+        "append-only audit",
+        "tamper demo"
+      ],
+      "input_files": [
+        "events.jsonl",
+        "tamper_actions.json"
+      ],
+      "expected_file": "expected.json",
+      "delivery_semantics": "Порядок строк в events.jsonl = порядок доставки. occurred_at = производственное время.",
+      "notes": "received_at назначает TRACE-Q; expected.json описывает бизнес-результат, а не внутреннюю реализацию."
+    },
+    {
+      "scenario_id": "S10",
+      "title": "Противоречивые источники в одной контрольной точке",
+      "priority": "P0",
+      "purpose": "Проверяет equal-priority conflict: GOOD и DEFECT не должны автоматически разрешаться по большей confidence.",
+      "test_targets": [
+        "CONFLICTED",
+        "needs_extra_check",
+        "no trusted boundary"
+      ],
+      "input_files": [
+        "events.jsonl"
+      ],
+      "expected_file": "expected.json",
+      "delivery_semantics": "Порядок строк в events.jsonl = порядок доставки. occurred_at = производственное время.",
+      "notes": "received_at назначает TRACE-Q; expected.json описывает бизнес-результат, а не внутреннюю реализацию."
+    },
+    {
+      "scenario_id": "S11",
+      "title": "Нет предыдущего inspection",
+      "priority": "P0",
+      "purpose": "Проверяет LEFT_OPEN без попытки выдумать предыдущее состояние изделия.",
+      "test_targets": [
+        "LEFT_OPEN",
+        "missing historical evidence"
+      ],
+      "input_files": [
+        "events.jsonl"
+      ],
+      "expected_file": "expected.json",
+      "delivery_semantics": "Порядок строк в events.jsonl = порядок доставки. occurred_at = производственное время.",
+      "notes": "received_at назначает TRACE-Q; expected.json описывает бизнес-результат, а не внутреннюю реализацию."
+    },
+    {
+      "scenario_id": "S12",
+      "title": "Несколько типов дефекта в одном observation",
+      "priority": "P0",
+      "purpose": "Проверяет, что одно observation может создать несколько DefectOccurrence/Birth Window, а KPI считает дефекты отдельно от изделий.",
+      "test_targets": [
+        "multi-defect observation",
+        "DefectOccurrence",
+        "KPI defects vs items"
+      ],
+      "input_files": [
+        "events.jsonl"
+      ],
+      "expected_file": "expected.json",
+      "delivery_semantics": "Порядок строк в events.jsonl = порядок доставки. occurred_at = производственное время.",
+      "notes": "received_at назначает TRACE-Q; expected.json описывает бизнес-результат, а не внутреннюю реализацию."
+    },
+    {
+      "scenario_id": "S13",
+      "title": "Inspection impossible_to_assess",
+      "priority": "P0",
+      "purpose": "Проверяет, что impossible не трактуется как GOOD/DEFECT и не сужает окно.",
+      "test_targets": [
+        "UNASSESSABLE",
+        "Birth Window",
+        "limitation"
+      ],
+      "input_files": [
+        "events.jsonl"
+      ],
+      "expected_file": "expected.json",
+      "delivery_semantics": "Порядок строк в events.jsonl = порядок доставки. occurred_at = производственное время.",
+      "notes": "received_at назначает TRACE-Q; expected.json описывает бизнес-результат, а не внутреннюю реализацию."
+    },
+    {
+      "scenario_id": "S14",
+      "title": "Одинаковый event_id с другим содержимым",
+      "priority": "P0",
+      "purpose": "Проверяет защиту от подмены/idempotency conflict: второй delivery должен быть отклонён, оригинал не меняется.",
+      "test_targets": [
+        "EVENT_ID_CONFLICT",
+        "immutable original"
+      ],
+      "input_files": [
+        "events.jsonl"
+      ],
+      "expected_file": "expected.json",
+      "delivery_semantics": "Порядок строк в events.jsonl = порядок доставки. occurred_at = производственное время.",
+      "notes": "received_at назначает TRACE-Q; expected.json описывает бизнес-результат, а не внутреннюю реализацию."
+    },
+    {
+      "scenario_id": "S15",
+      "title": "Out-of-order delivery операции",
+      "priority": "P0",
+      "purpose": "Проверяет deterministic replay: finish доставлен раньше start, но projection строится по occurred_at.",
+      "test_targets": [
+        "out-of-order",
+        "event-time sorting",
+        "deterministic projection"
+      ],
+      "input_files": [
+        "events.jsonl"
+      ],
+      "expected_file": "expected.json",
+      "delivery_semantics": "Порядок строк в events.jsonl = порядок доставки. occurred_at = производственное время.",
+      "notes": "received_at назначает TRACE-Q; expected.json описывает бизнес-результат, а не внутреннюю реализацию."
+    },
+    {
+      "scenario_id": "S16",
+      "title": "Rework не устранил тот же дефект",
+      "priority": "P0",
+      "purpose": "Проверяет, что повторный тот же defect после rework не создаёт новый физический DefectOccurrence и не закрывает исходный NCR.",
+      "test_targets": [
+        "rework failure",
+        "DefectOccurrence linking",
+        "NCR stays open"
+      ],
+      "input_files": [
+        "events.jsonl",
+        "actions.json"
+      ],
+      "expected_file": "expected.json",
+      "delivery_semantics": "Порядок строк в events.jsonl = порядок доставки. occurred_at = производственное время.",
+      "notes": "received_at назначает TRACE-Q; expected.json описывает бизнес-результат, а не внутреннюю реализацию."
+    },
+    {
+      "scenario_id": "S17",
+      "title": "Evidence Invalidation расширяет Birth Window",
+      "priority": "P1",
+      "purpose": "Главный P1-сценарий: позднее выясняется, что CAM-02 была невалидна; старый GOOD теряет trust, создаётся Analysis v2.",
+      "test_targets": [
+        "Evidence Invalidation",
+        "versioned analysis",
+        "trust INVALIDATED"
+      ],
+      "input_files": [
+        "events.jsonl"
+      ],
+      "expected_file": "expected.json",
+      "delivery_semantics": "Порядок строк в events.jsonl = порядок доставки. occurred_at = производственное время.",
+      "notes": "received_at назначает TRACE-Q; expected.json описывает бизнес-результат, а не внутреннюю реализацию."
+    },
+    {
+      "scenario_id": "S18",
+      "title": "Blast Radius по подозрительному инструменту",
+      "priority": "P1",
+      "purpose": "Проверяет поиск потенциально затронутых изделий по shared factor. Другие изделия не объявляются дефектными автоматически.",
+      "test_targets": [
+        "Blast Radius",
+        "genealogy/context traversal",
+        "containment proposal"
+      ],
+      "input_files": [
+        "events.jsonl",
+        "analysis_request.json"
+      ],
+      "expected_file": "expected.json",
+      "delivery_semantics": "Порядок строк в events.jsonl = порядок доставки. occurred_at = производственное время.",
+      "notes": "received_at назначает TRACE-Q; expected.json описывает бизнес-результат, а не внутреннюю реализацию."
+    },
+    {
+      "scenario_id": "S19",
+      "title": "ERP outage + transactional outbox retry",
+      "priority": "P0",
+      "purpose": "Проверяет, что решение контролёра остаётся committed при недоступном ERP, а outbox доставляется идемпотентно после восстановления.",
+      "test_targets": [
+        "transactional outbox",
+        "retry",
+        "ACK",
+        "decision durability"
+      ],
+      "input_files": [
+        "events.jsonl",
+        "actions.json",
+        "erp_behavior.json"
+      ],
+      "expected_file": "expected.json",
+      "delivery_semantics": "Порядок строк в events.jsonl = порядок доставки. occurred_at = производственное время.",
+      "notes": "received_at назначает TRACE-Q; expected.json описывает бизнес-результат, а не внутреннюю реализацию."
+    },
+    {
+      "scenario_id": "S20",
+      "title": "Неавторизованный VisionQC source",
+      "priority": "P0",
+      "purpose": "Security-тест: незарегистрированный источник не должен создать RawEvent/NCR даже с правдоподобным payload.",
+      "test_targets": [
+        "Source Registry",
+        "source authentication",
+        "security alert"
+      ],
+      "input_files": [
+        "events.jsonl",
+        "requests.json"
+      ],
+      "expected_file": "expected.json",
+      "delivery_semantics": "Порядок строк в events.jsonl = порядок доставки. occurred_at = производственное время.",
+      "notes": "received_at назначает TRACE-Q; expected.json описывает бизнес-результат, а не внутреннюю реализацию."
+    },
+    {
+      "scenario_id": "S21",
+      "title": "Replay attack vs legitimate duplicate retry",
+      "priority": "P0",
+      "purpose": "Проверяет различие transport replay и business duplicate: тот же nonce отклоняется как replay; новый nonce с тем же event_id/body проходит auth и становится duplicate.",
+      "test_targets": [
+        "ReplayGuard",
+        "source auth",
+        "idempotency"
+      ],
+      "input_files": [
+        "events.jsonl",
+        "requests.json"
+      ],
+      "expected_file": "expected.json",
+      "delivery_semantics": "Порядок строк в events.jsonl = порядок доставки. occurred_at = производственное время.",
+      "notes": "received_at назначает TRACE-Q; expected.json описывает бизнес-результат, а не внутреннюю реализацию."
+    },
+    {
+      "scenario_id": "S22",
+      "title": "RBAC + Controlled Outbound Release",
+      "priority": "P0",
+      "purpose": "Проверяет separation of duties и запрет отправки непроверенного defect в ERP.",
+      "test_targets": [
+        "RBAC",
+        "Controlled Release Gate",
+        "audit critical actions"
+      ],
+      "input_files": [
+        "events.jsonl",
+        "actions.json"
+      ],
+      "expected_file": "expected.json",
+      "delivery_semantics": "Порядок строк в events.jsonl = порядок доставки. occurred_at = производственное время.",
+      "notes": "received_at назначает TRACE-Q; expected.json описывает бизнес-результат, а не внутреннюю реализацию."
+    },
+    {
+      "scenario_id": "S23",
+      "title": "Нет структуры КОМПАС / component mapping",
+      "priority": "P0",
+      "purpose": "Проверяет fallback на item-level DefectKey: отсутствие ProductStructure не блокирует основной QC workflow.",
+      "test_targets": [
+        "missing KOMPAS structure",
+        "item-level fallback",
+        "Birth Window"
+      ],
+      "input_files": [
+        "events.jsonl"
+      ],
+      "expected_file": "expected.json",
+      "delivery_semantics": "Порядок строк в events.jsonl = порядок доставки. occurred_at = производственное время.",
+      "notes": "received_at назначает TRACE-Q; expected.json описывает бизнес-результат, а не внутреннюю реализацию."
+    },
+    {
+      "scenario_id": "S24",
+      "title": "RouteRevision не переписывает маршрут уже запущенного изделия",
+      "priority": "P0",
+      "purpose": "Проверяет immutable route revisions: старое изделие остаётся на v1, новое получает v2.",
+      "test_targets": [
+        "route versioning",
+        "configuration audit"
+      ],
+      "input_files": [
+        "events.jsonl",
+        "route_change.json"
+      ],
+      "expected_file": "expected.json",
+      "delivery_semantics": "Порядок строк в events.jsonl = порядок доставки. occurred_at = производственное время.",
+      "notes": "received_at назначает TRACE-Q; expected.json описывает бизнес-результат, а не внутреннюю реализацию."
+    },
+    {
+      "scenario_id": "S25",
+      "title": "Пакет для проверки KPI",
+      "priority": "P0",
+      "purpose": "Небольшой смешанный набор для проверки, что изделия, дефекты, confirmed NCR и rework считаются раздельно.",
+      "test_targets": [
+        "KPI",
+        "defect occurrence counting",
+        "confirmed vs rejected",
+        "rework rate"
+      ],
+      "input_files": [
+        "events.jsonl",
+        "actions.json"
+      ],
+      "expected_file": "expected.json",
+      "delivery_semantics": "Порядок строк в events.jsonl = порядок доставки. occurred_at = производственное время.",
+      "notes": "received_at назначает TRACE-Q; expected.json описывает бизнес-результат, а не внутреннюю реализацию."
+    }
+  ],
+  "special_sets": {
+    "invalid_inputs": "Проверка schema/semantic/version validation.",
+    "load/load_profile.json": "Параметры воспроизводимого генератора для scaling test."
+  }
+}

@@ -1,0 +1,25 @@
+{
+  "purpose": "Semantic validation: отрицательная duration физически невозможна.",
+  "expected": {
+    "http_status": 422,
+    "error_code": "SEMANTIC_VALIDATION_ERROR",
+    "raw_event_created": false
+  },
+  "request": {
+    "event_id": "EV-INV-002",
+    "event_type": "operation.finished",
+    "schema_version": "1.0",
+    "occurred_at": "2026-09-26T01:05:00Z",
+    "source": {
+      "source_id": "MES-01",
+      "source_type": "mes",
+      "sequence": 9992
+    },
+    "item_id": "ITEM-INV-2",
+    "operation_run_id": "RUN-INV-2",
+    "payload": {
+      "completion_status": "completed",
+      "duration_seconds": -40
+    }
+  }
+}

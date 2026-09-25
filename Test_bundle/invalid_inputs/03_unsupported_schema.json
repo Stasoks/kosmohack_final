@@ -1,0 +1,23 @@
+{
+  "purpose": "Contract versioning: неизвестная schema_version не должна угадываться.",
+  "expected": {
+    "error_code": "UNSUPPORTED_SCHEMA_VERSION",
+    "raw_event_created": false
+  },
+  "request": {
+    "event_id": "EV-INV-003",
+    "event_type": "item.registered",
+    "schema_version": "9.9",
+    "occurred_at": "2026-09-26T01:10:00Z",
+    "source": {
+      "source_id": "MES-01",
+      "source_type": "mes",
+      "sequence": 9993
+    },
+    "item_id": "ITEM-INV-3",
+    "payload": {
+      "product_definition_id": "PD-A",
+      "revision": "A"
+    }
+  }
+}

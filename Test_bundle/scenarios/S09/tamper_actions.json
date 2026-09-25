@@ -1,0 +1,18 @@
+{
+  "warning": "DEMO/TEST ONLY. Выполняется privileged test harness, не production API.",
+  "steps": [
+    {
+      "action": "VERIFY_INTEGRITY",
+      "expect": "OK"
+    },
+    {
+      "action": "MUTATE_STORED_CIPHERTEXT",
+      "target_event_id": "EV-S09-002",
+      "mutation": "flip_one_byte"
+    },
+    {
+      "action": "VERIFY_INTEGRITY",
+      "expect": "INTEGRITY_FAILED"
+    }
+  ]
+}

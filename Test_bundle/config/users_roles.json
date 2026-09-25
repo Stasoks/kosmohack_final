@@ -1,0 +1,47 @@
+{
+  "users": [
+    {
+      "user_id": "qc-01",
+      "role": "QUALITY_CONTROLLER",
+      "permissions": [
+        "VIEW_PRODUCT",
+        "VIEW_NONCONFORMANCE",
+        "REVIEW_NONCONFORMANCE",
+        "ISSUE_QC_DECISION",
+        "APPROVE_CONTAINMENT",
+        "VIEW_AUDIT"
+      ]
+    },
+    {
+      "user_id": "tech-01",
+      "role": "TECHNOLOGIST",
+      "permissions": [
+        "VIEW_PRODUCT",
+        "VIEW_NONCONFORMANCE",
+        "CREATE_INVESTIGATION_NOTE",
+        "PROPOSE_CONTAINMENT",
+        "VIEW_ANALYTICS"
+      ]
+    },
+    {
+      "user_id": "admin-01",
+      "role": "ADMIN",
+      "permissions": [
+        "MANAGE_USERS",
+        "MANAGE_INTEGRATIONS",
+        "VIEW_AUDIT",
+        "VERIFY_INTEGRITY"
+      ]
+    },
+    {
+      "user_id": "sec-01",
+      "role": "SECURITY_ADMIN",
+      "permissions": [
+        "VIEW_AUDIT",
+        "VERIFY_INTEGRITY",
+        "ROTATE_KEYS",
+        "CHANGE_CRYPTO_PROFILE"
+      ]
+    }
+  ]
+}

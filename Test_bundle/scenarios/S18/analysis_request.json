@@ -1,0 +1,10 @@
+{
+  "requested_by": "tech-01",
+  "risk_factor": {
+    "type": "tool_id",
+    "value": "TOOL-T14",
+    "affected_from": "2026-09-25T10:00:00Z",
+    "affected_to": "2026-09-25T14:00:00Z"
+  },
+  "mode": "BLAST_RADIUS_PROPOSAL"
+}

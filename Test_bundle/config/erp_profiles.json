@@ -1,0 +1,34 @@
+{
+  "profiles": {
+    "NORMAL": {
+      "responses": [
+        "ACK"
+      ]
+    },
+    "TIMEOUT_ONCE": {
+      "responses": [
+        "TIMEOUT",
+        "ACK"
+      ]
+    },
+    "ERROR_503": {
+      "responses": [
+        "503",
+        "503",
+        "ACK"
+      ]
+    },
+    "REJECT_400": {
+      "responses": [
+        "400"
+      ]
+    },
+    "OFFLINE_THEN_NORMAL": {
+      "responses": [
+        "OFFLINE",
+        "OFFLINE",
+        "ACK"
+      ]
+    }
+  }
+}

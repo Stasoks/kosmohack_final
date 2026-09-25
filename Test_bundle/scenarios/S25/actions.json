@@ -1,0 +1,50 @@
+[
+  {
+    "after_event_id": "EV-S25B-002",
+    "actor_id": "qc-01",
+    "action": "CONFIRM_NONCONFORMANCE",
+    "payload": {
+      "nonconformance_id": "NC-S25B",
+      "disposition": "REWORK_REQUIRED"
+    }
+  },
+  {
+    "after_event_id": "EV-S25C-002",
+    "actor_id": "qc-01",
+    "action": "CONFIRM_NONCONFORMANCE",
+    "payload": {
+      "nonconformance_id": "NC-S25C",
+      "disposition": "REWORK_REQUIRED"
+    }
+  },
+  {
+    "after_event_id": "EV-S25D-002",
+    "actor_id": "qc-01",
+    "action": "CONFIRM_NONCONFORMANCE",
+    "payload": {
+      "nonconformance_id": "NC-S25D",
+      "disposition": "REWORK_REQUIRED"
+    }
+  },
+  {
+    "after_event_id": "EV-S25D-005",
+    "actor_id": "qc-01",
+    "action": "VERIFY_REWORK_AND_RELEASE",
+    "target": {
+      "nonconformance_id": "NC-S25D",
+      "item_id": "ITEM-S25-D"
+    }
+  },
+  {
+    "after_event_id": "EV-S25F-002",
+    "actor_id": "qc-01",
+    "action": "REJECT_NONCONFORMANCE",
+    "target": {
+      "item_id": "ITEM-S25-F",
+      "defect_type": "surface_crack"
+    },
+    "payload": {
+      "reason": "Ручная перепроверка не подтвердила"
+    }
+  }
+]

@@ -1,0 +1,8 @@
+{
+  "inspection_session": "CAP-S10-SAME",
+  "trust_state": "CONFLICTED",
+  "ncr_status": "needs_extra_check",
+  "trusted_good_boundary": false,
+  "trusted_defect_boundary": false,
+  "birth_window_status": "UNRESOLVED_DEFECT_BOUNDARY"
+}

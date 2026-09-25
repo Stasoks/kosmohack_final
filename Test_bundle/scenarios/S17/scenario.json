@@ -1,0 +1,17 @@
+{
+  "scenario_id": "S17",
+  "title": "Evidence Invalidation расширяет Birth Window",
+  "priority": "P1",
+  "purpose": "Главный P1-сценарий: позднее выясняется, что CAM-02 была невалидна; старый GOOD теряет trust, создаётся Analysis v2.",
+  "test_targets": [
+    "Evidence Invalidation",
+    "versioned analysis",
+    "trust INVALIDATED"
+  ],
+  "input_files": [
+    "events.jsonl"
+  ],
+  "expected_file": "expected.json",
+  "delivery_semantics": "Порядок строк в events.jsonl = порядок доставки. occurred_at = производственное время.",
+  "notes": "received_at назначает TRACE-Q; expected.json описывает бизнес-результат, а не внутреннюю реализацию."
+}

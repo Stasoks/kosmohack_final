@@ -1,0 +1,16 @@
+{
+  "scenario_id": "S11",
+  "title": "Нет предыдущего inspection",
+  "priority": "P0",
+  "purpose": "Проверяет LEFT_OPEN без попытки выдумать предыдущее состояние изделия.",
+  "test_targets": [
+    "LEFT_OPEN",
+    "missing historical evidence"
+  ],
+  "input_files": [
+    "events.jsonl"
+  ],
+  "expected_file": "expected.json",
+  "delivery_semantics": "Порядок строк в events.jsonl = порядок доставки. occurred_at = производственное время.",
+  "notes": "received_at назначает TRACE-Q; expected.json описывает бизнес-результат, а не внутреннюю реализацию."
+}

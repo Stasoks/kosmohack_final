@@ -1,0 +1,25 @@
+{
+  "purpose": "Schema validation: observation_quality вне enum.",
+  "expected": {
+    "http_status": 422,
+    "error_code": "SCHEMA_VALIDATION_ERROR",
+    "raw_event_created": false
+  },
+  "request": {
+    "event_id": "EV-INV-004",
+    "event_type": "inspection.result",
+    "schema_version": "1.0",
+    "occurred_at": "2026-09-26T01:15:00Z",
+    "source": {
+      "source_id": "VISION-01",
+      "source_type": "vision_qc",
+      "sequence": 9994
+    },
+    "item_id": "ITEM-INV-4",
+    "payload": {
+      "inspection_result": "no_defect",
+      "observation_quality": "excellent",
+      "control_point_id": "CP-FINAL"
+    }
+  }
+}

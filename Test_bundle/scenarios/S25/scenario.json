@@ -1,0 +1,19 @@
+{
+  "scenario_id": "S25",
+  "title": "Пакет для проверки KPI",
+  "priority": "P0",
+  "purpose": "Небольшой смешанный набор для проверки, что изделия, дефекты, confirmed NCR и rework считаются раздельно.",
+  "test_targets": [
+    "KPI",
+    "defect occurrence counting",
+    "confirmed vs rejected",
+    "rework rate"
+  ],
+  "input_files": [
+    "events.jsonl",
+    "actions.json"
+  ],
+  "expected_file": "expected.json",
+  "delivery_semantics": "Порядок строк в events.jsonl = порядок доставки. occurred_at = производственное время.",
+  "notes": "received_at назначает TRACE-Q; expected.json описывает бизнес-результат, а не внутреннюю реализацию."
+}

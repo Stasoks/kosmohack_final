@@ -1,0 +1,9 @@
+{
+  "component_structure": "unavailable",
+  "workflow_blocked": false,
+  "defect_key": {
+    "item_id": "ITEM-S23",
+    "defect_type": "surface_crack"
+  },
+  "birth_window_status": "BOUNDED"
+}

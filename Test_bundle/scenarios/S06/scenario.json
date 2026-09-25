@@ -1,0 +1,17 @@
+{
+  "scenario_id": "S06",
+  "title": "Идемпотентность duplicate delivery",
+  "priority": "P0",
+  "purpose": "Проверяет, что повтор того же event_id с тем же canonical content не создаёт второй RawEvent, Observation или KPI.",
+  "test_targets": [
+    "duplicate handling",
+    "idempotency",
+    "KPI stability"
+  ],
+  "input_files": [
+    "events.jsonl"
+  ],
+  "expected_file": "expected.json",
+  "delivery_semantics": "Порядок строк в events.jsonl = порядок доставки. occurred_at = производственное время.",
+  "notes": "received_at назначает TRACE-Q; expected.json описывает бизнес-результат, а не внутреннюю реализацию."
+}

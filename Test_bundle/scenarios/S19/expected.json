@@ -1,0 +1,6 @@
+{
+  "controller_decision_committed": true,
+  "outbox_final_state": "DELIVERED",
+  "same_message_id_on_retry": true,
+  "decision_must_not_rollback": true
+}

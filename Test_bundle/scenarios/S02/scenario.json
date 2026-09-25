@@ -1,0 +1,17 @@
+{
+  "scenario_id": "S02",
+  "title": "Входной дефект до производства",
+  "priority": "P0",
+  "purpose": "Проверяет входной брак: дефект подтверждён сигналом до операций, предыдущего trusted GOOD нет.",
+  "test_targets": [
+    "incoming defect",
+    "LEFT_OPEN Birth Window",
+    "no operation blamed"
+  ],
+  "input_files": [
+    "events.jsonl"
+  ],
+  "expected_file": "expected.json",
+  "delivery_semantics": "Порядок строк в events.jsonl = порядок доставки. occurred_at = производственное время.",
+  "notes": "received_at назначает TRACE-Q; expected.json описывает бизнес-результат, а не внутреннюю реализацию."
+}

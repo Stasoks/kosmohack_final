@@ -1,0 +1,8 @@
+{
+  "deliveries": 5,
+  "accepted_unique_events": 4,
+  "duplicate_deliveries": 1,
+  "raw_event_count": 4,
+  "observation_count": 1,
+  "kpi_must_not_double_count": true
+}

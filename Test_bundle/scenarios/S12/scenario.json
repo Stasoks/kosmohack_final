@@ -1,0 +1,17 @@
+{
+  "scenario_id": "S12",
+  "title": "Несколько типов дефекта в одном observation",
+  "priority": "P0",
+  "purpose": "Проверяет, что одно observation может создать несколько DefectOccurrence/Birth Window, а KPI считает дефекты отдельно от изделий.",
+  "test_targets": [
+    "multi-defect observation",
+    "DefectOccurrence",
+    "KPI defects vs items"
+  ],
+  "input_files": [
+    "events.jsonl"
+  ],
+  "expected_file": "expected.json",
+  "delivery_semantics": "Порядок строк в events.jsonl = порядок доставки. occurred_at = производственное время.",
+  "notes": "received_at назначает TRACE-Q; expected.json описывает бизнес-результат, а не внутреннюю реализацию."
+}

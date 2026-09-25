@@ -1,0 +1,15 @@
+[
+  {
+    "after_event_id": "EV-S19-002",
+    "actor_id": "qc-01",
+    "action": "CONFIRM_NONCONFORMANCE",
+    "target": {
+      "item_id": "ITEM-S19",
+      "defect_type": "surface_crack"
+    },
+    "payload": {
+      "nonconformance_id": "NC-S19",
+      "disposition": "REWORK_REQUIRED"
+    }
+  }
+]

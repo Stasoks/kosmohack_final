@@ -1,0 +1,10 @@
+{
+  "accepted_events": 4,
+  "operation_run": {
+    "id": "RUN-S15-MILL",
+    "started_at": "2026-09-25T19:35:00Z",
+    "finished_at": "2026-09-25T19:45:00Z",
+    "status": "completed"
+  },
+  "projection_failure": false
+}

@@ -1,0 +1,17 @@
+{
+  "accepted_events": 2,
+  "ncr": {
+    "expected_status": "pending_review",
+    "defect_type": "surface_crack"
+  },
+  "birth_windows": [
+    {
+      "defect_type": "surface_crack",
+      "status": "LEFT_OPEN",
+      "last_trusted_good": null,
+      "first_trusted_defect": "EV-S02-002",
+      "operations_in_window": []
+    }
+  ],
+  "root_cause_status": "not_established"
+}

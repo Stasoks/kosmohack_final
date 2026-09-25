@@ -1,0 +1,9 @@
+{
+  "profile": "OFFLINE_THEN_NORMAL",
+  "expected_state_sequence": [
+    "RETRYING",
+    "RETRYING",
+    "DELIVERED"
+  ],
+  "same_message_id_on_retry": true
+}

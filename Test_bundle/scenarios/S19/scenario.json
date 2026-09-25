@@ -1,0 +1,20 @@
+{
+  "scenario_id": "S19",
+  "title": "ERP outage + transactional outbox retry",
+  "priority": "P0",
+  "purpose": "Проверяет, что решение контролёра остаётся committed при недоступном ERP, а outbox доставляется идемпотентно после восстановления.",
+  "test_targets": [
+    "transactional outbox",
+    "retry",
+    "ACK",
+    "decision durability"
+  ],
+  "input_files": [
+    "events.jsonl",
+    "actions.json",
+    "erp_behavior.json"
+  ],
+  "expected_file": "expected.json",
+  "delivery_semantics": "Порядок строк в events.jsonl = порядок доставки. occurred_at = производственное время.",
+  "notes": "received_at назначает TRACE-Q; expected.json описывает бизнес-результат, а не внутреннюю реализацию."
+}

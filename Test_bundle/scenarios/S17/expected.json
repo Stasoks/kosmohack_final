@@ -1,0 +1,22 @@
+{
+  "analysis_versions": [
+    {
+      "version": 1,
+      "last_trusted_good": "EV-S17-003",
+      "first_trusted_defect": "EV-S17-006",
+      "from": "2026-09-25T09:30:00Z",
+      "to": "2026-09-25T12:00:00Z"
+    },
+    {
+      "version": 2,
+      "last_trusted_good": "EV-S17-002",
+      "first_trusted_defect": "EV-S17-006",
+      "from": "2026-09-25T08:00:00Z",
+      "to": "2026-09-25T12:00:00Z"
+    }
+  ],
+  "derived_trust": {
+    "EV-S17-003": "INVALIDATED"
+  },
+  "old_analysis_preserved": true
+}

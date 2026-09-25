@@ -1,0 +1,6 @@
+{
+  "REQ-S21-1": "accepted",
+  "REQ-S21-2-REPLAY": "REPLAY_ATTEMPT",
+  "REQ-S21-3-LEGIT-RETRY": "duplicate",
+  "raw_event_count": 1
+}

@@ -1,0 +1,25 @@
+{
+  "purpose": "Schema validation: inspection.result без required control_point_id.",
+  "expected": {
+    "http_status": 422,
+    "error_code": "SCHEMA_VALIDATION_ERROR",
+    "raw_event_created": false
+  },
+  "request": {
+    "event_id": "EV-INV-001",
+    "event_type": "inspection.result",
+    "schema_version": "1.0",
+    "occurred_at": "2026-09-26T01:00:00Z",
+    "source": {
+      "source_id": "VISION-01",
+      "source_type": "vision_qc",
+      "sequence": 9991
+    },
+    "item_id": "ITEM-INV-1",
+    "payload": {
+      "inspection_result": "no_defect",
+      "observation_quality": "good",
+      "confidence": 0.95
+    }
+  }
+}

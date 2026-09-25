@@ -1,0 +1,18 @@
+{
+  "birth_windows": [
+    {
+      "defect_type": "surface_crack",
+      "status": "BOUNDED",
+      "last_trusted_good": "EV-S05-002",
+      "first_trusted_defect": "EV-S05-007",
+      "operations_in_window": [
+        "RUN-S05-MILL",
+        "RUN-S05-GRIND"
+      ]
+    }
+  ],
+  "limitations": [
+    "MISSING_CHECK"
+  ],
+  "missing_control_point": "CP-POST-MILL"
+}

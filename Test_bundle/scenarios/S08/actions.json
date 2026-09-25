@@ -1,0 +1,28 @@
+[
+  {
+    "after_event_id": "EV-S08-005",
+    "actor_id": "qc-01",
+    "action": "CONFIRM_NONCONFORMANCE",
+    "target": {
+      "item_id": "ITEM-S08",
+      "defect_type": "surface_crack"
+    },
+    "payload": {
+      "nonconformance_id": "NC-S08",
+      "disposition": "REWORK_REQUIRED",
+      "reason": "Подтверждено контролёром"
+    }
+  },
+  {
+    "after_event_id": "EV-S08-008",
+    "actor_id": "qc-01",
+    "action": "VERIFY_REWORK_AND_RELEASE",
+    "target": {
+      "nonconformance_id": "NC-S08",
+      "item_id": "ITEM-S08"
+    },
+    "payload": {
+      "reason": "Повторный trusted GOOD"
+    }
+  }
+]

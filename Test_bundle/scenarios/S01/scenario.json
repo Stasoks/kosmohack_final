@@ -1,0 +1,18 @@
+{
+  "scenario_id": "S01",
+  "title": "Нормальный маршрут без дефектов",
+  "priority": "P0",
+  "purpose": "Проверяет happy path производства, trusted GOOD после операций, отсутствие ложного NCR и FPY.",
+  "test_targets": [
+    "route projection",
+    "trusted GOOD",
+    "no NCR",
+    "KPI first-pass yield"
+  ],
+  "input_files": [
+    "events.jsonl"
+  ],
+  "expected_file": "expected.json",
+  "delivery_semantics": "Порядок строк в events.jsonl = порядок доставки. occurred_at = производственное время.",
+  "notes": "received_at назначает TRACE-Q; expected.json описывает бизнес-результат, а не внутреннюю реализацию."
+}

@@ -1,1 +1,0 @@
-{"event_id":"S20-E1","event_type":"item.registered","schema_version":"1.0","occurred_at":"2026-09-25T20:00:00Z","source":{"source_id":"UNKNOWN-01","source_type":"mes","sequence":1},"item_id":"ITEM-S20","operation_run_id":null,"payload":{"product_definition_id":"PD-TRACE-01","revision":"A"}}

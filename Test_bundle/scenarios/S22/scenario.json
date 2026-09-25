@@ -1,0 +1,18 @@
+{
+  "scenario_id": "S22",
+  "title": "RBAC + Controlled Outbound Release",
+  "priority": "P0",
+  "purpose": "Проверяет separation of duties и запрет отправки непроверенного defect в ERP.",
+  "test_targets": [
+    "RBAC",
+    "Controlled Release Gate",
+    "audit critical actions"
+  ],
+  "input_files": [
+    "events.jsonl",
+    "actions.json"
+  ],
+  "expected_file": "expected.json",
+  "delivery_semantics": "Порядок строк в events.jsonl = порядок доставки. occurred_at = производственное время.",
+  "notes": "received_at назначает TRACE-Q; expected.json описывает бизнес-результат, а не внутреннюю реализацию."
+}

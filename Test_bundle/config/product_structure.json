@@ -1,0 +1,16 @@
+{
+  "product_definition_id": "PD-A",
+  "revision": "A",
+  "components": [
+    {
+      "component_definition_id": "COMP-HOUSING",
+      "default_instance_id": "COMP-HOUSING-1",
+      "criticality": "HIGH"
+    },
+    {
+      "component_definition_id": "COMP-BRACKET",
+      "default_instance_id": "COMP-BRACKET-1",
+      "criticality": "MEDIUM"
+    }
+  ]
+}

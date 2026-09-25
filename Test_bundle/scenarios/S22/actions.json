@@ -1,0 +1,30 @@
+[
+  {
+    "after_event_id": "EV-S22-002",
+    "actor_id": "admin-01",
+    "action": "ISSUE_QC_DECISION",
+    "expected": "DENIED"
+  },
+  {
+    "after_event_id": "EV-S22-002",
+    "actor_id": "qc-01",
+    "action": "EXPORT_QUALITY_RESULT",
+    "expected": "DENIED_NO_DISPOSITION"
+  },
+  {
+    "after_event_id": "EV-S22-002",
+    "actor_id": "qc-01",
+    "action": "CONFIRM_NONCONFORMANCE",
+    "payload": {
+      "nonconformance_id": "NC-S22",
+      "disposition": "REWORK_REQUIRED"
+    },
+    "expected": "ALLOWED"
+  },
+  {
+    "after_action": "CONFIRM_NONCONFORMANCE",
+    "actor_id": "qc-01",
+    "action": "EXPORT_QUALITY_RESULT",
+    "expected": "ALLOWED"
+  }
+]

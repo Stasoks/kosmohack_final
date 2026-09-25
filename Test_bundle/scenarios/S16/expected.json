@@ -1,0 +1,10 @@
+{
+  "ncr": {
+    "id": "NC-S16",
+    "verdict": "confirmed",
+    "closed": false
+  },
+  "same_defect_occurrence": true,
+  "verification": "failed",
+  "item_disposition": "REWORK_REQUIRED"
+}

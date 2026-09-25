@@ -1,0 +1,6 @@
+{
+  "first_delivery": "accepted",
+  "second_delivery": "409 EVENT_ID_CONFLICT",
+  "raw_event_count": 1,
+  "stored_revision": "A"
+}

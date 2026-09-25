@@ -1,0 +1,108 @@
+{
+  "version": "1.0",
+  "sources": [
+    {
+      "source_id": "MES-01",
+      "source_type": "mes",
+      "status": "ACTIVE",
+      "auth_method": "TEST_FIXTURE_AUTH_V1",
+      "allowed_event_types": [
+        "item.registered",
+        "operation.started",
+        "operation.finished"
+      ],
+      "allowed_line_ids": [
+        "LINE-A"
+      ],
+      "allowed_station_ids": [
+        "ST-MILL-01",
+        "ST-GRIND-01",
+        "ST-FINAL-01",
+        "ST-REWORK-01"
+      ]
+    },
+    {
+      "source_id": "VISION-01",
+      "source_type": "vision_qc",
+      "status": "ACTIVE",
+      "auth_method": "TEST_FIXTURE_AUTH_V1",
+      "allowed_event_types": [
+        "inspection.result"
+      ],
+      "allowed_line_ids": [
+        "LINE-A"
+      ],
+      "allowed_station_ids": [
+        "ST-INCOMING-QC",
+        "ST-MILL-QC",
+        "ST-GRIND-QC",
+        "ST-FINAL-QC",
+        "ST-REWORK-QC"
+      ]
+    },
+    {
+      "source_id": "VISION-02",
+      "source_type": "vision_qc",
+      "status": "ACTIVE",
+      "auth_method": "TEST_FIXTURE_AUTH_V1",
+      "allowed_event_types": [
+        "inspection.result"
+      ],
+      "allowed_line_ids": [
+        "LINE-A"
+      ],
+      "allowed_station_ids": [
+        "ST-GRIND-QC"
+      ]
+    },
+    {
+      "source_id": "EQUIP-GW-01",
+      "source_type": "equipment_gateway",
+      "status": "ACTIVE",
+      "auth_method": "TEST_FIXTURE_AUTH_V1",
+      "allowed_event_types": [
+        "machine.state"
+      ],
+      "allowed_line_ids": [
+        "LINE-A"
+      ],
+      "allowed_station_ids": [
+        "ST-MILL-01",
+        "ST-GRIND-01",
+        "ST-FINAL-01",
+        "ST-REWORK-01"
+      ]
+    },
+    {
+      "source_id": "OPTERM-01",
+      "source_type": "operator_terminal",
+      "status": "ACTIVE",
+      "auth_method": "TEST_FIXTURE_AUTH_V1",
+      "allowed_event_types": [
+        "operator.action"
+      ],
+      "allowed_line_ids": [
+        "LINE-A"
+      ],
+      "allowed_station_ids": [
+        "ST-MILL-01",
+        "ST-GRIND-01",
+        "ST-FINAL-01",
+        "ST-REWORK-01"
+      ]
+    },
+    {
+      "source_id": "CAL-01",
+      "source_type": "calibration_system",
+      "status": "ACTIVE",
+      "auth_method": "TEST_FIXTURE_AUTH_V1",
+      "allowed_event_types": [
+        "control_device.invalidated"
+      ],
+      "allowed_line_ids": [
+        "LINE-A"
+      ],
+      "allowed_station_ids": []
+    }
+  ]
+}

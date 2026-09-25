@@ -1,0 +1,17 @@
+{
+  "trust": {
+    "EV-S04-002": "UNTRUSTED",
+    "EV-S04-005": "TRUSTED"
+  },
+  "birth_windows": [
+    {
+      "defect_type": "surface_crack",
+      "status": "LEFT_OPEN",
+      "last_trusted_good": null,
+      "first_trusted_defect": "EV-S04-005"
+    }
+  ],
+  "limitations": [
+    "POOR_OBSERVATION"
+  ]
+}

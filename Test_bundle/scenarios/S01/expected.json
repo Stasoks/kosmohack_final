@@ -1,0 +1,15 @@
+{
+  "accepted_events": 10,
+  "ncr_count": 0,
+  "trusted_observations": 3,
+  "item": {
+    "item_id": "ITEM-S01",
+    "expected_disposition": "IN_PROCESS",
+    "has_rework": false
+  },
+  "kpi_expectations": {
+    "items_with_confirmed_nonconformities_delta": 0,
+    "rework_count_delta": 0,
+    "first_pass_yield_success": true
+  }
+}

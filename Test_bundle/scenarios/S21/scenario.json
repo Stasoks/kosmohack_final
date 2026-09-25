@@ -1,0 +1,18 @@
+{
+  "scenario_id": "S21",
+  "title": "Replay attack vs legitimate duplicate retry",
+  "priority": "P0",
+  "purpose": "Проверяет различие transport replay и business duplicate: тот же nonce отклоняется как replay; новый nonce с тем же event_id/body проходит auth и становится duplicate.",
+  "test_targets": [
+    "ReplayGuard",
+    "source auth",
+    "idempotency"
+  ],
+  "input_files": [
+    "events.jsonl",
+    "requests.json"
+  ],
+  "expected_file": "expected.json",
+  "delivery_semantics": "Порядок строк в events.jsonl = порядок доставки. occurred_at = производственное время.",
+  "notes": "received_at назначает TRACE-Q; expected.json описывает бизнес-результат, а не внутреннюю реализацию."
+}

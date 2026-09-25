@@ -1,0 +1,31 @@
+{
+  "requests": [
+    {
+      "request_id": "REQ-S20-1",
+      "auth": {
+        "source_id": "VISION-UNKNOWN",
+        "nonce": "N-S20-1",
+        "timestamp": "2026-09-25T21:30:01Z",
+        "signature": "not-trusted"
+      },
+      "body": {
+        "event_id": "EV-S20-001",
+        "event_type": "inspection.result",
+        "schema_version": "1.0",
+        "occurred_at": "2026-09-25T21:30:00Z",
+        "source": {
+          "source_id": "VISION-UNKNOWN",
+          "source_type": "vision_qc",
+          "sequence": 1
+        },
+        "item_id": "ITEM-S20",
+        "payload": {
+          "inspection_result": "defect_detected",
+          "observation_quality": "good",
+          "control_point_id": "CP-POST-GRIND",
+          "confidence": 0.99
+        }
+      }
+    }
+  ]
+}
