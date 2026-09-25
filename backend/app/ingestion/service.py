@@ -168,7 +168,7 @@ def _resolve_event_scope(db: Session, event: Any, payload: dict[str, Any]) -> tu
         if item:
             line_id = line_id or item.line_id
 
-    if station_id is None and item and item.route_revision_id and payload.get("control_point_id"):
+    if station_id is None and item and getattr(item, "route_revision_id", None) and payload.get("control_point_id"):
         route_step = db.scalar(
             select(RouteStep)
             .where(
