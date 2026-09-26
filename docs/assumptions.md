@@ -4,13 +4,16 @@
 - Source timestamps are timezone-aware UTC. TRACE-Q records receive time but does not yet estimate per-source clock drift.
 - A missing inspection produces a limitation, not a fabricated negative observation.
 - Default trust accepts only `observation_quality=good`; confidence and media are optional unless a versioned policy requires them.
-- Equivalent opposing observations at the same time/control point/component become `CONFLICTED`.
+- Opposing equal-priority observations become `CONFLICTED` only within one logical session when their component and defect scopes overlap. The fallback session bucket is 60 seconds and also includes item, control point, and operation run.
 - Machine state and operator action are context. Only a human can confirm a cause.
 - Component structure may be unavailable. Item-level registration, NCR, and disposition still work.
 - Fixture adapters are not claims of compatibility with an unknown customer installation; real endpoints, auth, schemas, and TLS roots must be supplied during site integration.
 - The demo profile exposes localhost API/ERP/PostgreSQL debug ports. Production-like Compose keeps the DB internal and requires an HTTPS boundary.
-- Evidence invalidation and blast-radius automation are planned score-boost extensions after the stable P0 path; their event/model boundaries are documented in the master plan but are not misrepresented as completed industrial functions.
+- Evidence invalidation and Blast Radius are implemented in the MVP, but Blast Radius remains proposal-first: it does not create defects or apply containment until the explicit approval workflow completes.
+- The HMAC_V1 demo transport is not an mTLS replacement.
+- Vendor KOMPAS/ERP/MES transports remain site-specific adapters because the case does not provide production endpoint/authentication specifications.
+- `HYBRID_PQ_V1` is an implemented optional checkpoint profile using real ML-DSA-65 through `liboqs-python`; the isolated PQ proof installs and exercises it. The default stack remains classical and does not require the PQ runtime or keys. Repository proof is not production deployment, HSM, or key-ceremony validation.
 
-## Prepared, not executed
+## Verification boundary
 
-The implementation includes migrations, unit/PostgreSQL/security/scenario tests, Compose profiles, CI and benchmark tools. They were intentionally not executed by the implementation agent. The HMAC_V1 demo transport is not an mTLS replacement; PQ checkpoint support is optional; vendor KOMPAS/ERP bridges remain site-specific adapters.
+The repository defines deterministic contract, unit, PostgreSQL scenario, security, compilation, and bounded demo-smoke jobs. Only an observed command result or workflow run is evidence for a particular revision; documentation alone is not a green-status claim.

@@ -484,6 +484,22 @@ class BlastRadiusExposure(Base):
     proposed_action: Mapped[str] = mapped_column(String(32), default="REVIEW_REQUIRED")
 
 
+class ContainmentApplication(Base):
+    __tablename__ = "containment_applications"
+    id: Mapped[uuid.UUID] = uuid_pk()
+    proposal_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("containment_proposals.id"), index=True)
+    blast_radius_query_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("blast_radius_queries.id"), index=True)
+    exposure_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("blast_radius_exposures.id"), index=True)
+    item_id: Mapped[str] = mapped_column(String(128), index=True)
+    action: Mapped[str] = mapped_column(String(32))
+    approval_request_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("approval_requests.id"), index=True)
+    approved_by: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), index=True)
+    applied_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    __table_args__ = (
+        UniqueConstraint("proposal_id", "item_id", name="uq_containment_application_proposal_item"),
+    )
+
+
 class ApprovalRequest(Base):
     __tablename__ = "approval_requests"
     id: Mapped[uuid.UUID] = uuid_pk()
@@ -566,6 +582,7 @@ class RouteStep(Base):
     position: Mapped[int] = mapped_column(Integer)
     operation_id: Mapped[str] = mapped_column(String(128))
     operation_name: Mapped[str] = mapped_column(String(255))
+    station_id: Mapped[str | None] = mapped_column(String(128), index=True)
     control_point_id: Mapped[str | None] = mapped_column(String(128))
     required_inspection: Mapped[bool] = mapped_column(Boolean, default=False)
     inspection_scope: Mapped[dict[str, Any] | list[Any] | None] = mapped_column(JSONB)
@@ -691,4 +708,12 @@ class IntegrityCheckpoint(Base):
     crypto_profile_id: Mapped[str] = mapped_column(String(64))
     classic_signature: Mapped[bytes] = mapped_column(LargeBinary)
     pq_signature: Mapped[bytes | None] = mapped_column(LargeBinary)
+    format_version: Mapped[str | None] = mapped_column(String(16), default="2")
+    classic_key_id: Mapped[str | None] = mapped_column(String(128))
+    classic_key_version: Mapped[str | None] = mapped_column(String(32))
+    classic_algorithm: Mapped[str | None] = mapped_column(String(64))
+    pq_key_id: Mapped[str | None] = mapped_column(String(128))
+    pq_key_version: Mapped[str | None] = mapped_column(String(32))
+    pq_algorithm: Mapped[str | None] = mapped_column(String(64))
+    payload_hash: Mapped[str | None] = mapped_column(String(64))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

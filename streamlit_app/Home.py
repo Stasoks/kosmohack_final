@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import os
+
 import streamlit as st
 
 from streamlit_app.api_client.client import APIError, login
+from streamlit_app.ui.navigation import authorized_page_specs
 from streamlit_app.ui import views
 
 
@@ -25,27 +28,27 @@ def login_page() -> None:
 
 
 if "auth" not in st.session_state or "profile" not in st.session_state:
-    login_page()
+    # Calling navigation again with a hidden, login-only page clears the page
+    # registry left by the previous authorized run. Rendering the form directly
+    # leaves the old sidebar visible until another login.
+    st.navigation(
+        [st.Page(login_page, title="Вход", icon="🔑", default=True)],
+        position="hidden",
+    ).run()
     st.stop()
 
-permissions = set(st.session_state.profile["permissions"])
-pages = [st.Page(views.guarded(views.overview), title="Обзор", icon="🏭", default=True)]
-if "REVIEW_NONCONFORMANCE" in permissions:
-    pages.append(st.Page(views.guarded(views.pending_reviews), title="Решения QC", icon="✅"))
-if "VIEW_TIMELINE" in permissions:
-    pages.append(st.Page(views.guarded(views.timeline), title="История изделия", icon="🧭"))
-if "VIEW_ANALYTICS" in permissions:
-    pages.append(st.Page(views.guarded(views.analytics), title="Аналитика", icon="📊"))
-if "VIEW_ANALYTICS" in permissions or "MANAGE_INTEGRATIONS" in permissions:
-    pages.append(st.Page(views.guarded(views.data_health), title="Data Health", icon="🩺"))
-if "MANAGE_ROUTES" in permissions:
-    pages.append(st.Page(views.guarded(views.route_editor), title="Маршруты", icon="🛤️"))
-if "RUN_BLAST_RADIUS" in permissions:
-    pages.append(st.Page(views.guarded(views.blast_radius), title="Blast Radius", icon="🎯"))
-if "MANAGE_USERS" in permissions:
-    pages.append(st.Page(views.guarded(views.admin_panel), title="Администрирование", icon="🔐"))
-if "RUN_DEMO_SCENARIOS" in permissions:
-    pages.append(st.Page(views.guarded(views.scenario_runner), title="Scenario Runner", icon="🧪"))
+pages = [
+    st.Page(
+        views.guarded(getattr(views, spec.view_name)),
+        title=spec.title,
+        icon=spec.icon,
+        default=spec.view_name == "overview",
+    )
+    for spec in authorized_page_specs(
+        st.session_state.profile,
+        demo_mode=os.getenv("DEMO_MODE", "false").lower() in {"1", "true", "yes"},
+    )
+]
 
 navigation = st.navigation(pages)
 navigation.run()

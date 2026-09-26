@@ -69,6 +69,7 @@ services:
       DEMO_TECHNOLOGIST_PASSWORD: ${DEMO_TECHNOLOGIST_PASSWORD:-}
       DEMO_MANAGER_PASSWORD: ${DEMO_MANAGER_PASSWORD:-}
       DEMO_ADMIN_PASSWORD: ${DEMO_ADMIN_PASSWORD:-}
+      SIMULATOR_READER_PASSWORD: ${SIMULATOR_READER_PASSWORD:-}
     command: ["python", "-m", "backend.app.seed"]
     depends_on:
       migrate:
@@ -129,6 +130,7 @@ services:
     environment:
       TRACEQ_API_URL: http://backend:8080
       DEMO_MODE: ${DEMO_MODE:-false}
+      PYTHONPATH: /app
     command: ["streamlit", "run", "streamlit_app/Home.py", "--server.address=0.0.0.0", "--server.port=8501", "--server.headless=true"]
     depends_on:
       backend:

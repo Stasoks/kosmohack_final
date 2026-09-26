@@ -17,7 +17,7 @@
     "action": "CONFIRM_NONCONFORMANCE",
     "payload": {
       "nonconformance_id": "NC-S22",
-      "disposition": "REWORK_REQUIRED"
+      "disposition": "USE_AS_IS"
     },
     "expected": "ALLOWED"
   },

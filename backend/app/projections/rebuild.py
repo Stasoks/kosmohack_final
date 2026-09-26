@@ -30,12 +30,59 @@ from backend.app.persistence.models import (
     TrustPolicy,
 )
 from backend.app.quality.birth_window import EvidenceValue, calculate_birth_window
-from backend.app.quality.trust import TrustPolicyValue, evaluate_trust
+from backend.app.quality.conflicts import conflicting_event_ids
+from backend.app.quality.trust import (
+    TrustPolicyValue,
+    effective_scope_context,
+    evaluate_trust,
+    scope_coverage,
+)
 from backend.app.security.crypto import build_aad, decrypt_event, utcnow
 from backend.app.settings import Settings
 
 
 OBSERVATION_NAMESPACE = uuid.UUID("b8d12dc1-9b4e-4e16-a463-1323ea45b88c")
+
+
+def _occurrence_key(
+    defect_type: str, component_instance_id: str | None
+) -> tuple[str, str | None]:
+    return defect_type, component_instance_id
+
+
+def _occurrence_for_observation(
+    occurrences: list[DefectOccurrence],
+    observation_id: uuid.UUID,
+    occurred_at: datetime,
+) -> DefectOccurrence | None:
+    """Resolve a replayed observation to its stable physical-defect episode."""
+    for occurrence in occurrences:
+        if occurrence.first_observation_id == observation_id:
+            return occurrence
+    for occurrence in occurrences:
+        if occurrence.current_observation_id == observation_id:
+            return occurrence
+
+    inside_episode = [
+        occurrence
+        for occurrence in occurrences
+        if occurrence.opened_at <= occurred_at
+        and (occurrence.closed_at is None or occurred_at <= occurrence.closed_at)
+    ]
+    if not inside_episode:
+        return None
+    return max(inside_episode, key=lambda value: (value.opened_at, str(value.id)))
+
+
+def _route_revision_number(value: Any) -> int | None:
+    if value is None:
+        return None
+    if isinstance(value, int):
+        return value
+    text_value = str(value).strip().lower()
+    if text_value.startswith("v"):
+        text_value = text_value[1:]
+    return int(text_value) if text_value.isdigit() else None
 
 
 def advisory_lock_key(item_id: str) -> int:
@@ -75,6 +122,68 @@ def _trust_policy(db: Session, control_point_id: str) -> TrustPolicyValue:
         requires_valid_device=policy.requires_valid_device,
         media_required=policy.media_required,
     )
+
+
+def _resolve_route_revision_id(
+    db: Session,
+    item_id: str,
+    item_value: dict[str, Any] | None,
+) -> uuid.UUID | None:
+    item = db.get(Item, item_id)
+    if item and item.route_revision_id:
+        return item.route_revision_id
+    if not item_value:
+        return None
+    route = db.scalar(
+        select(RouteDefinition).where(
+            RouteDefinition.code == (item_value.get("route_id") or "ROUTE-DEFAULT")
+        )
+    )
+    if not route:
+        return None
+    revision_number = _route_revision_number(item_value.get("route_revision"))
+    if revision_number is None:
+        return route.active_revision_id
+    revision = db.scalar(
+        select(RouteRevision).where(
+            RouteRevision.route_id == route.id,
+            RouteRevision.revision == revision_number,
+        )
+    )
+    return revision.id if revision else None
+
+
+def _route_inspection_scopes(
+    db: Session, route_revision_id: uuid.UUID | None
+) -> dict[str, dict[str, Any] | list[Any] | None]:
+    if route_revision_id is None:
+        return {}
+    return {
+        step.control_point_id: step.inspection_scope
+        for step in db.scalars(
+            select(RouteStep).where(RouteStep.route_revision_id == route_revision_id)
+        ).all()
+        if step.control_point_id
+    }
+
+
+def _targeted_rework_scope(
+    db: Session,
+    operation: dict[str, Any] | None,
+) -> dict[str, list[str]] | None:
+    if not operation or operation.get("run_reason") != "rework":
+        return None
+    raw_ncr_id = operation.get("rework_for_nonconformance_id")
+    if not raw_ncr_id:
+        return None
+    try:
+        ncr = db.get(Nonconformance, uuid.UUID(str(raw_ncr_id)))
+    except (TypeError, ValueError):
+        return None
+    if not ncr:
+        return None
+    components = [ncr.component_instance_id] if ncr.component_instance_id else ["*"]
+    return {"defect_types": [ncr.defect_type], "component_instance_ids": components}
 
 
 def _missing_check_limitations(
@@ -236,6 +345,16 @@ def rebuild_item(db: Session, item_id: str, settings: Settings) -> None:
         return
 
     events = [(raw, _decrypt(raw, settings)) for raw in raws]
+    registration = next(
+        (
+            ({**event["payload"], "registered_at": raw.occurred_at})
+            for raw, event in events
+            if raw.event_type == "item.registered"
+        ),
+        None,
+    )
+    route_revision_id = _resolve_route_revision_id(db, item_id, registration)
+    configured_scopes = _route_inspection_scopes(db, route_revision_id)
     item_value: dict[str, Any] | None = None
     operation_values: dict[str, dict[str, Any]] = {}
     observation_values: list[dict[str, Any]] = []
@@ -279,6 +398,10 @@ def rebuild_item(db: Session, item_id: str, settings: Settings) -> None:
                 ControlDeviceInvalidation.affected_to >= raw.occurred_at,
             ).limit(1)))
             trust = evaluate_trust(payload, policy, invalidated=invalidated)
+            configured_scope = configured_scopes.get(payload["control_point_id"])
+            targeted_scope = _targeted_rework_scope(
+                db, operation_values.get(raw.operation_run_id)
+            )
             observation_values.append(
                 {
                     **payload,
@@ -286,6 +409,11 @@ def rebuild_item(db: Session, item_id: str, settings: Settings) -> None:
                     "operation_run_id": raw.operation_run_id,
                     "event_id": raw.event_id,
                     "occurred_at": raw.occurred_at,
+                    "source_id": raw.source_id,
+                    "source_priority": 0,
+                    "inspection_scope": effective_scope_context(
+                        payload.get("inspection_scope"), configured_scope, targeted_scope
+                    ),
                     "trust_status": trust.status,
                     "trust_reasons": list(trust.reasons),
                 }
@@ -295,18 +423,12 @@ def rebuild_item(db: Session, item_id: str, settings: Settings) -> None:
         elif raw.event_type == "operator.action":
             action_values.append({**payload, "item_id": raw.item_id, "operation_run_id": raw.operation_run_id, "event_id": raw.event_id, "occurred_at": raw.occurred_at})
 
-    # Equal-time, equal-control-point observations with opposing results are not causal tie-breaks.
-    groups: dict[tuple[Any, ...], list[dict[str, Any]]] = {}
+    # Only equivalent, equal-priority claims inside one logical session conflict.
+    conflicted_ids = conflicting_event_ids(observation_values)
     for obs in observation_values:
-        session = obs.get("capture_session_id")
-        bucket = int(obs["occurred_at"].timestamp() // 300)
-        key = (session or bucket, obs["control_point_id"], obs.get("component_instance_id"))
-        groups.setdefault(key, []).append(obs)
-    for group in groups.values():
-        if len({obs["inspection_result"] for obs in group}) > 1:
-            for obs in group:
-                obs["trust_status"] = "CONFLICTED"
-                obs["trust_reasons"] = ["EQUIVALENT_OBSERVATIONS_CONFLICT"]
+        if obs["event_id"] in conflicted_ids:
+            obs["trust_status"] = "CONFLICTED"
+            obs["trust_reasons"] = ["EQUIVALENT_OBSERVATIONS_CONFLICT"]
 
     db.execute(delete(DefectObservation).where(DefectObservation.item_id == item_id))
     db.execute(delete(Observation).where(Observation.item_id == item_id))
@@ -317,14 +439,6 @@ def rebuild_item(db: Session, item_id: str, settings: Settings) -> None:
 
     item = db.get(Item, item_id)
     if item_value:
-        route_revision_id = item.route_revision_id if item else None
-        if not route_revision_id:
-            route = db.scalar(select(RouteDefinition).where(RouteDefinition.code == (item_value.get("route_id") or "ROUTE-DEFAULT")))
-            if route and item_value.get("route_revision"):
-                revision = db.scalar(select(RouteRevision).where(RouteRevision.route_id == route.id, RouteRevision.revision == item_value["route_revision"]))
-                route_revision_id = revision.id if revision else None
-            elif route:
-                route_revision_id = route.active_revision_id
         if item is None:
             structure_available = bool(db.scalar(select(ProductStructureSnapshot.id).where(
                 ProductStructureSnapshot.assembly_id == item_value["product_definition_id"],
@@ -368,6 +482,7 @@ def rebuild_item(db: Session, item_id: str, settings: Settings) -> None:
             )
         )
     observation_ids: dict[str, uuid.UUID] = {}
+    pending_defects: list[tuple[uuid.UUID, dict[str, Any], dict[str, Any]]] = []
     for value in observation_values:
         obs_id = uuid.uuid5(OBSERVATION_NAMESPACE, value["event_id"])
         observation_ids[value["event_id"]] = obs_id
@@ -392,17 +507,34 @@ def rebuild_item(db: Session, item_id: str, settings: Settings) -> None:
             )
         )
         for defect in value.get("defects", []):
-            db.add(
-                DefectObservation(
-                    observation_id=obs_id,
-                    item_id=item_id,
-                    defect_type=defect["defect_type"],
-                    component_instance_id=defect.get("component_instance_id")
-                    or value.get("component_instance_id"),
-                    description=defect.get("description"),
-                    severity=defect.get("severity"),
-                )
+            component = defect.get("component_instance_id") or value.get(
+                "component_instance_id"
             )
+            if (
+                scope_coverage(
+                    value.get("inspection_scope"), defect["defect_type"], component
+                )
+                == "NONE"
+            ):
+                continue
+            pending_defects.append((obs_id, value, defect))
+
+    # Flush parent observations first. Rebuilds use deterministic observation UUIDs and
+    # bulk-delete the previous projection, so relying on implicit UoW ordering here can
+    # race the FK on defect_observations during repeated rebuilds.
+    db.flush()
+    for obs_id, value, defect in pending_defects:
+        db.add(
+            DefectObservation(
+                observation_id=obs_id,
+                item_id=item_id,
+                defect_type=defect["defect_type"],
+                component_instance_id=defect.get("component_instance_id")
+                or value.get("component_instance_id"),
+                description=defect.get("description"),
+                severity=defect.get("severity"),
+            )
+        )
     for value in machine_values:
         db.add(
             MachineEvent(
@@ -432,34 +564,50 @@ def rebuild_item(db: Session, item_id: str, settings: Settings) -> None:
 
     operations_list = list(operation_values.values())
     limitations = _missing_check_limitations(db, item, operations_list, observation_values)
+    occurrences_by_key: dict[tuple[str, str | None], list[DefectOccurrence]] = {}
+    for existing_occurrence in db.scalars(
+        select(DefectOccurrence)
+        .where(DefectOccurrence.item_id == item_id)
+        .order_by(DefectOccurrence.opened_at, DefectOccurrence.id)
+    ).all():
+        key = _occurrence_key(
+            existing_occurrence.defect_type,
+            existing_occurrence.component_instance_id,
+        )
+        occurrences_by_key.setdefault(key, []).append(existing_occurrence)
+
     for obs in observation_values:
         if obs["inspection_result"] != "defect_detected":
             continue
         for defect in obs.get("defects", []):
             component = defect.get("component_instance_id") or obs.get("component_instance_id")
-            occurrence = db.scalar(
-                select(DefectOccurrence).where(
-                    DefectOccurrence.item_id == item_id,
-                    DefectOccurrence.defect_type == defect["defect_type"],
-                    DefectOccurrence.component_instance_id.is_(None)
-                    if component is None
-                    else DefectOccurrence.component_instance_id == component,
-                    DefectOccurrence.status == "OPEN",
-                )
+            if (
+                scope_coverage(obs.get("inspection_scope"), defect["defect_type"], component)
+                == "NONE"
+            ):
+                continue
+            occurrence_key = _occurrence_key(defect["defect_type"], component)
+            occurrence_candidates = occurrences_by_key.setdefault(occurrence_key, [])
+            observation_id = observation_ids[obs["event_id"]]
+            occurrence = _occurrence_for_observation(
+                occurrence_candidates,
+                observation_id,
+                obs["occurred_at"],
             )
             if occurrence is None:
                 occurrence = DefectOccurrence(
                     item_id=item_id,
                     defect_type=defect["defect_type"],
                     component_instance_id=component,
-                    first_observation_id=observation_ids[obs["event_id"]],
-                    current_observation_id=observation_ids[obs["event_id"]],
+                    first_observation_id=observation_id,
+                    current_observation_id=observation_id,
                     opened_at=obs["occurred_at"],
                 )
                 db.add(occurrence)
                 db.flush()
+                occurrence_candidates.append(occurrence)
             else:
-                occurrence.current_observation_id = observation_ids[obs["event_id"]]
+                occurrence.current_observation_id = observation_id
             ncr = db.scalar(select(Nonconformance).where(Nonconformance.occurrence_id == occurrence.id))
             if ncr is None:
                 ncr = Nonconformance(

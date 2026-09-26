@@ -1,0 +1,33 @@
+{
+  "contracts": [
+    {
+      "event_type": "control_device.invalidated",
+      "schema_version": "1.1"
+    },
+    {
+      "event_type": "inspection.result",
+      "schema_version": "1.1"
+    },
+    {
+      "event_type": "item.registered",
+      "schema_version": "1.1"
+    },
+    {
+      "event_type": "machine.state",
+      "schema_version": "1.1"
+    },
+    {
+      "event_type": "operation.finished",
+      "schema_version": "1.1"
+    },
+    {
+      "event_type": "operation.started",
+      "schema_version": "1.1"
+    },
+    {
+      "event_type": "operator.action",
+      "schema_version": "1.1"
+    }
+  ],
+  "source": "contracts/events/evolution/canonical-event-1.1-demo.schema.json"
+}

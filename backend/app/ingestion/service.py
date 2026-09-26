@@ -18,15 +18,19 @@ from backend.app.domain.events import (
 )
 from backend.app.errors import TraceQError
 from backend.app.persistence.models import (
-    AuditEntry,
     ControlDeviceInvalidation,
+    Equipment,
     EventSource,
     IngestAttempt,
     IntegrityStreamState,
+    Item,
+    OperationRun,
     ProjectionState,
     RawEvent,
     Observation,
+    RouteStep,
     SecurityAlert,
+    Station,
     TransportNonce,
 )
 from backend.app.security.crypto import (
@@ -39,6 +43,7 @@ from backend.app.security.crypto import (
     token_hash,
     utcnow,
 )
+from backend.app.security.audit import write_audit
 from backend.app.settings import Settings
 
 
@@ -93,12 +98,15 @@ def _parse_transport_time(value: str) -> datetime:
         raise TraceQError("SOURCE_AUTH_FAILED", "Invalid source timestamp", 401) from exc
 
 
-def _hmac_secret(settings: Settings, source_id: str) -> str | None:
+def _hmac_secret(settings: Settings, source: EventSource) -> str | None:
     if settings.source_hmac_secrets_json:
         values = json.loads(settings.source_hmac_secrets_json.get_secret_value())
-        if isinstance(values, dict) and source_id in values:
-            return str(values[source_id])
-    return settings.source_demo_token.get_secret_value() if settings.demo_mode and settings.source_demo_token else None
+        if isinstance(values, dict):
+            lookup_key = source.key_id or source.source_id
+            value = values.get(lookup_key)
+            if value is not None:
+                return str(value)
+    return None
 
 
 def _authenticate_source(
@@ -128,7 +136,7 @@ def _authenticate_source(
             _alert(db, "REPLAY_ATTEMPT", source_id)
             db.commit()
             raise TraceQError("REPLAY_ATTEMPT", "Transport nonce has already been used", 409)
-        secret = _hmac_secret(settings, source_id)
+        secret = _hmac_secret(settings, source)
         if not secret:
             raise TraceQError("KEY_UNAVAILABLE", "Source authentication key is unavailable", 503)
         signed = source_timestamp.encode() + b"\n" + source_nonce.encode() + b"\n" + canonical_json_bytes(body)
@@ -140,6 +148,71 @@ def _authenticate_source(
     elif not source_token or not source.token_hash or not hmac.compare_digest(source.token_hash, token_hash(source_token)):
         raise TraceQError("INVALID_SOURCE_CREDENTIALS", "Source credentials are invalid", 401)
     return source
+
+
+def _resolve_event_scope(db: Session, event: Any, payload: dict[str, Any]) -> tuple[str | None, str | None]:
+    """Resolve line/station from the event and already-known production context."""
+    line_id = payload.get("line_id")
+    station_id = payload.get("station_id")
+    item_id = event.item_id
+
+    if event.operation_run_id:
+        run = db.get(OperationRun, event.operation_run_id)
+        if run:
+            station_id = station_id or run.station_id
+            item_id = item_id or run.item_id
+
+    item = None
+    if item_id:
+        item = db.get(Item, item_id)
+        if item:
+            line_id = line_id or item.line_id
+
+    if station_id is None and item and getattr(item, "route_revision_id", None) and payload.get("control_point_id"):
+        route_step = db.scalar(
+            select(RouteStep)
+            .where(
+                RouteStep.route_revision_id == item.route_revision_id,
+                RouteStep.control_point_id == payload["control_point_id"],
+            )
+            .limit(1)
+        )
+        if route_step:
+            station_id = route_step.station_id
+
+    equipment_id = payload.get("equipment_id")
+    if station_id is None and equipment_id:
+        equipment = db.get(Equipment, equipment_id)
+        if equipment:
+            station_id = equipment.station_id
+
+    if line_id is None and station_id:
+        station = db.get(Station, station_id)
+        if station:
+            line_id = station.line_id
+
+    return line_id, station_id
+
+
+def _enforce_source_scope(
+    db: Session,
+    source: EventSource,
+    event: Any,
+    payload: dict[str, Any],
+) -> None:
+    line_id, station_id = _resolve_event_scope(db, event, payload)
+    if source.allowed_line_ids and line_id not in source.allowed_line_ids:
+        raise TraceQError(
+            "SOURCE_SCOPE_VIOLATION",
+            "Event line cannot be resolved inside the source allowed scope",
+            403,
+        )
+    if source.allowed_station_ids and station_id not in source.allowed_station_ids:
+        raise TraceQError(
+            "SOURCE_SCOPE_VIOLATION",
+            "Event station cannot be resolved inside the source allowed scope",
+            403,
+        )
 
 
 def ingest_event(
@@ -170,10 +243,7 @@ def ingest_event(
                 403,
             )
         payload = event.payload.model_dump(mode="json")
-        if source.allowed_line_ids and payload.get("line_id") not in (None, *source.allowed_line_ids):
-            raise TraceQError("SOURCE_SCOPE_VIOLATION", "Source is outside its allowed line scope", 403)
-        if source.allowed_station_ids and payload.get("station_id") not in (None, *source.allowed_station_ids):
-            raise TraceQError("SOURCE_SCOPE_VIOLATION", "Source is outside its allowed station scope", 403)
+        _enforce_source_scope(db, source, event, payload)
         if event.event_type == "control_device.invalidated" and source.source_type != "calibration_system":
             raise TraceQError("SOURCE_SCOPE_VIOLATION", "Only a calibration source may invalidate a control device", 403)
         if event.source.sequence is not None and source.last_source_sequence is not None and event.source.sequence <= source.last_source_sequence:
@@ -209,14 +279,13 @@ def ingest_event(
         )
         if status == "conflict":
             _alert(db, "EVENT_ID_CONFLICT", source.source_id, event.event_id)
-            db.add(
-                AuditEntry(
-                    action="event_id_conflict",
-                    outcome="detected",
-                    target_type="raw_event",
-                    target_id=event.event_id,
-                    safe_details={"source_id": source.source_id},
-                )
+            write_audit(
+                db,
+                action="event_id_conflict",
+                outcome="detected",
+                target_type="raw_event",
+                target_id=event.event_id,
+                safe_details={"source_id": source.source_id},
             )
         db.commit()
         if status == "conflict":
@@ -294,7 +363,7 @@ def ingest_event(
         if projection is None:
             projection = ProjectionState(item_id=event.item_id)
             db.add(projection)
-        projection.latest_raw_ingest_seq = max(projection.latest_raw_ingest_seq, raw.ingest_seq)
+        projection.latest_raw_ingest_seq = max(projection.latest_raw_ingest_seq or 0, raw.ingest_seq)
         projection.status = "stale"
     affected_items: set[str] = set()
     if event.event_type == "control_device.invalidated":

@@ -5,14 +5,15 @@ from datetime import datetime
 
 from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel, Field, model_validator
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from backend.app.errors import NotFoundError, TraceQError
 from backend.app.persistence.database import get_db
 from backend.app.persistence.models import (
-    ApprovalRequest, BlastRadiusExposure, BlastRadiusQuery, ContainmentProposal,
-    ControlDeviceInvalidation, Observation, OperationRun,
+    ApprovalRequest, BlastRadiusExposure, BlastRadiusQuery, ContainmentApplication,
+    ContainmentProposal, ControlDeviceInvalidation, MachineEvent, Observation,
+    OperationRun,
 )
 from backend.app.projections.rebuild import rebuild_item
 from backend.app.security.audit import write_audit
@@ -59,6 +60,65 @@ def _matches(run: OperationRun, body: BlastRadiusRequest) -> bool:
     params = run.parameters or {}
     key = {"tool": "tool_id", "material_lot": "material_lot_id", "component": "component_instance_id"}.get(body.factor_type)
     return bool(key and params.get(key) == body.factor_value)
+
+
+@router.get("/equipment-issues")
+def equipment_issues(
+    _: Principal = Depends(require_permission("RUN_BLAST_RADIUS")),
+    db: Session = Depends(get_db),
+):
+    rows = db.scalars(
+        select(MachineEvent)
+        .where(
+            func.lower(MachineEvent.state).in_(("warning", "error", "fault", "alarm"))
+        )
+        .order_by(MachineEvent.occurred_at.desc())
+        .limit(50)
+    ).all()
+    result = []
+    seen: set[tuple[str, str | None]] = set()
+    for row in rows:
+        key = (row.equipment_id, row.code)
+        if key in seen:
+            continue
+        seen.add(key)
+        result.append({
+            "event_id": row.event_id,
+            "equipment_id": row.equipment_id,
+            "state": row.state,
+            "code": row.code,
+            "occurred_at": row.occurred_at,
+            "item_id": row.item_id,
+            "operation_run_id": row.operation_run_id,
+        })
+    return result
+
+
+@router.get("/control-devices")
+def control_devices(
+    _: Principal = Depends(require_permission("INVALIDATE_CONTROL_DEVICE")),
+    db: Session = Depends(get_db),
+):
+    rows = db.execute(
+        select(
+            Observation.control_device_id,
+            func.min(Observation.occurred_at),
+            func.max(Observation.occurred_at),
+            func.count(Observation.id),
+        )
+        .where(Observation.control_device_id.is_not(None))
+        .group_by(Observation.control_device_id)
+        .order_by(Observation.control_device_id)
+    ).all()
+    return [
+        {
+            "device_id": device_id,
+            "first_observed_at": first_observed_at,
+            "last_observed_at": last_observed_at,
+            "observation_count": observation_count,
+        }
+        for device_id, first_observed_at, last_observed_at, observation_count in rows
+    ]
 
 
 @router.post("/blast-radius")
@@ -113,6 +173,60 @@ def blast_radius(
             "note": "No defect or HOLD is applied until controller approval."}
 
 
+@router.get("/approvals")
+def list_approvals(
+    status: str = "PENDING",
+    _: Principal = Depends(require_permission("APPROVE_CONTAINMENT")),
+    db: Session = Depends(get_db),
+):
+    rows = db.scalars(
+        select(ApprovalRequest)
+        .where(ApprovalRequest.status == status)
+        .order_by(ApprovalRequest.created_at)
+    ).all()
+    result = []
+    for row in rows:
+        proposal = (
+            db.get(ContainmentProposal, uuid.UUID(row.target_id))
+            if row.target_type == "containment_proposal"
+            else None
+        )
+        query = (
+            db.get(BlastRadiusQuery, proposal.blast_radius_query_id)
+            if proposal and proposal.blast_radius_query_id
+            else None
+        )
+        affected_count = (
+            db.scalar(
+                select(func.count(BlastRadiusExposure.id)).where(
+                    BlastRadiusExposure.query_id == query.id
+                )
+            )
+            if query
+            else 0
+        )
+        result.append({
+            "id": row.id,
+            "action_type": row.action_type,
+            "target_type": row.target_type,
+            "target_id": row.target_id,
+            "requester_id": row.requester_id,
+            "required_approvals": row.required_approvals,
+            "approvals": row.approvals,
+            "status": row.status,
+            "reason": row.reason,
+            "created_at": row.created_at,
+            "factor_type": query.factor_type if query else None,
+            "factor_value": query.factor_value if query else None,
+            "affected_from": query.affected_from if query else None,
+            "affected_to": query.affected_to if query else None,
+            "affected_items_count": affected_count,
+            "proposed_action": proposal.containment if proposal else None,
+            "rationale": proposal.rationale if proposal else row.reason,
+        })
+    return result
+
+
 @router.post("/approvals/{approval_id}/approve")
 def approve(
     approval_id: uuid.UUID, body: ApprovalInput, request: Request,
@@ -131,15 +245,51 @@ def approve(
         raise TraceQError("DUPLICATE_APPROVAL", "This user already approved", 409)
     approvals.append({"user_id": str(principal.user_id), "reason": body.reason, "at": utcnow().isoformat()})
     approval.approvals = approvals
+    applied_items: list[str] = []
     if len(approvals) >= approval.required_approvals:
         approval.status, approval.completed_at = "APPROVED", utcnow()
         proposal = db.get(ContainmentProposal, uuid.UUID(approval.target_id))
         if proposal:
-            proposal.status, proposal.reviewed_by, proposal.review_reason, proposal.reviewed_at = "approved", principal.user_id, body.reason, utcnow()
+            proposal.status, proposal.reviewed_by, proposal.review_reason, proposal.reviewed_at = (
+                "approved", principal.user_id, body.reason, utcnow()
+            )
+            if proposal.blast_radius_query_id:
+                exposures = db.scalars(
+                    select(BlastRadiusExposure)
+                    .where(BlastRadiusExposure.query_id == proposal.blast_radius_query_id)
+                    .order_by(BlastRadiusExposure.item_id)
+                ).all()
+                existing = set(
+                    db.scalars(
+                        select(ContainmentApplication.item_id).where(
+                            ContainmentApplication.proposal_id == proposal.id
+                        )
+                    ).all()
+                )
+                for exposure in exposures:
+                    if exposure.item_id in existing:
+                        continue
+                    db.add(
+                        ContainmentApplication(
+                            proposal_id=proposal.id,
+                            blast_radius_query_id=proposal.blast_radius_query_id,
+                            exposure_id=exposure.id,
+                            item_id=exposure.item_id,
+                            action=proposal.containment,
+                            approval_request_id=approval.id,
+                            approved_by=principal.user_id,
+                        )
+                    )
+                    applied_items.append(exposure.item_id)
     write_audit(db, action="containment_approval", outcome=approval.status.lower(), actor_user_id=principal.user_id,
         session_id=principal.session_id, target_type="approval_request", target_id=str(approval.id), request_id=request.state.request_id)
     db.commit()
-    return {"status": approval.status, "approvals": len(approvals), "required": approval.required_approvals}
+    return {
+        "status": approval.status,
+        "approvals": len(approvals),
+        "required": approval.required_approvals,
+        "applied_items": applied_items,
+    }
 
 
 @router.post("/control-devices/invalidate")

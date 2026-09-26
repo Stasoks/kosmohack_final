@@ -5,24 +5,16 @@ import re
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, Request
-from sqlalchemy import create_engine, func, select, text
+from sqlalchemy import bindparam, create_engine, text
 from sqlalchemy.orm import Session
 
 from backend.app.errors import NotFoundError, TraceQError
-from backend.app.ingestion.service import ingest_event
 from backend.app.persistence.database import SessionLocal, get_db
-from backend.app.persistence.models import (
-    AnalysisEvidence,
-    AnalysisVersion,
-    IngestAttempt,
-    IntegrityStreamState,
-    Nonconformance,
-)
-from backend.app.projections.rebuild import rebuild_item
 from backend.app.security.audit import write_audit
 from backend.app.security.auth import Principal, require_permission
-from backend.app.security.integrity import verify_integrity
 from backend.app.settings import Settings, get_settings
+from backend.app.scenarios.harness import ScenarioBundle, ScenarioHarness
+from backend.app.scenarios.runtime import FIXTURE_SOURCE_IDS, ScenarioRuntime
 
 
 router = APIRouter(prefix="/api/v1/demo", tags=["demo"])
@@ -49,10 +41,21 @@ def scenarios(_: Principal = Depends(require_permission("RUN_DEMO_SCENARIOS"))):
         if not path.is_dir() or not (path / "expected.json").exists():
             continue
         expected = json.loads((path / "expected.json").read_text(encoding="utf-8"))
+        metadata_path = path / "scenario.json"
+        metadata = (
+            json.loads(metadata_path.read_text(encoding="utf-8"))
+            if metadata_path.exists()
+            else {}
+        )
         values.append(
             {
                 "name": path.name,
-                "description": expected.get("description", path.name),
+                "title": metadata.get("title", path.name),
+                "description": metadata.get(
+                    "purpose", expected.get("description", path.name)
+                ),
+                "priority": metadata.get("priority"),
+                "test_targets": metadata.get("test_targets", []),
                 "expected": {key: value for key, value in expected.items() if key != "description"},
             }
         )
@@ -86,104 +89,39 @@ def run_scenario(
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings),
 ):
-    path = _scenario_path(name)
-    if not settings.source_demo_token:
-        raise TraceQError("DEMO_SOURCE_NOT_CONFIGURED", "Demo source token is not configured", 503)
-    expected = json.loads((path / "expected.json").read_text(encoding="utf-8"))
-    events = [
-        json.loads(line)
-        for line in (path / "events.jsonl").read_text(encoding="utf-8").splitlines()
-        if line.strip()
-    ]
-    accepted = duplicates = 0
-    item_ids: set[str] = set()
-    for event in events:
-        result = ingest_event(
-            db,
-            event,
-            header_source_id=event["source"]["source_id"],
-            source_token=settings.source_demo_token.get_secret_value(),
-            settings=settings,
-        )
-        accepted += result.ingestion_status == "accepted"
-        duplicates += result.ingestion_status == "duplicate"
-        item_id = event.get("item_id") or event.get("payload", {}).get("item_id")
-        if item_id:
-            item_ids.add(item_id)
-            if result.ingestion_status == "accepted":
-                rebuild_item(db, item_id, settings)
-    for item_id in sorted(item_ids):
-        rebuild_item(db, item_id, settings)
-    if expected.get("tamper") and events:
-        _tamper(settings, events[0]["event_id"])
-        db.expire_all()
-        integrity_failures = verify_integrity(db, settings)
-    else:
-        integrity_failures = []
-
-    expected_item = expected.get("item_id")
-    ncrs = db.scalars(
-        select(Nonconformance).where(Nonconformance.item_id == expected_item)
-        if expected_item
-        else select(Nonconformance).where(Nonconformance.item_id.in_(item_ids))
-    ).all()
-    versions = []
-    for ncr in ncrs:
-        versions.extend(
-            db.scalars(
-                select(AnalysisVersion)
-                .where(AnalysisVersion.nonconformance_id == ncr.id)
-                .order_by(AnalysisVersion.version)
-            ).all()
-        )
-    evidence_types: set[str] = set()
-    if versions:
-        evidence_types = set(
-            db.scalars(
-                select(AnalysisEvidence.evidence_type).where(
-                    AnalysisEvidence.analysis_version_id.in_([version.id for version in versions])
-                )
-            ).all()
-        )
-    actual = {
-        "accepted_count": accepted,
-        "duplicate_count": duplicates,
-        "ncr_count": len(ncrs),
-        "latest_analysis_status": versions[-1].status if versions else None,
-        "analysis_version_count": len(versions),
-        "verdict": ncrs[-1].verdict if ncrs else None,
-        "evidence_types": sorted(evidence_types),
-        "integrity_status": "FAILED" if integrity_failures else "OK",
-    }
-    checks: dict[str, bool] = {}
-    for key in (
-        "duplicate_count",
-        "ncr_count",
-        "latest_analysis_status",
-        "verdict",
-        "integrity_status",
-    ):
-        if key in expected:
-            checks[key] = actual[key] == expected[key]
-    if "min_analysis_versions" in expected:
-        checks["min_analysis_versions"] = (
-            actual["analysis_version_count"] >= expected["min_analysis_versions"]
-        )
-    if "evidence_types" in expected:
-        checks["evidence_types"] = set(expected["evidence_types"]).issubset(evidence_types)
+    bundle = ScenarioBundle.load(_scenario_path(name))
+    runtime = ScenarioRuntime(
+        db,
+        settings,
+        scenario_id=bundle.scenario_id,
+        caller=principal,
+    )
+    harness = ScenarioHarness(
+        reset=runtime.reset,
+        setup=runtime.setup,
+        deliver=runtime.deliver,
+        action=runtime.action,
+        request=runtime.request,
+        erp=runtime.erp,
+        route_change=runtime.route_change,
+        analysis=runtime.analysis,
+        tamper=runtime.tamper,
+        normalize=runtime.normalize,
+    )
+    result = harness.run(bundle)
     write_audit(
         db,
         action="demo_scenario_run",
-        outcome="success" if all(checks.values()) else "failure",
+        outcome="success" if result["passed"] else "failure",
         actor_user_id=principal.user_id,
         session_id=principal.session_id,
         target_type="scenario",
         target_id=name,
         request_id=request.state.request_id,
-        safe_details={"checks": checks},
+        safe_details={"failures": result["failures"][:50]},
     )
     db.commit()
-    return {"scenario": name, "passed": all(checks.values()), "checks": checks, "actual": actual}
+    return result
 
 
 @router.post("/reset")
@@ -195,6 +133,7 @@ def reset_demo(
     if not settings.demo_privileged_database_url:
         raise TraceQError("DEMO_RESET_UNAVAILABLE", "Demo reset connection is not configured", 503)
     tables = (
+        "containment_applications",
         "blast_radius_exposures",
         "approval_requests",
         "containment_proposals",
@@ -224,6 +163,13 @@ def reset_demo(
     engine = create_engine(settings.demo_privileged_database_url)
     with engine.begin() as connection:
         connection.execute(text(f"TRUNCATE TABLE {', '.join(tables)} RESTART IDENTITY CASCADE"))
+        connection.execute(
+            text(
+                "UPDATE event_sources SET last_source_sequence = NULL "
+                "WHERE source_id IN :source_ids"
+            ).bindparams(bindparam("source_ids", expanding=True)),
+            {"source_ids": list(FIXTURE_SOURCE_IDS)},
+        )
     audit_db = SessionLocal()
     try:
         write_audit(

@@ -1,30 +1,55 @@
 from __future__ import annotations
 
+import json
 import secrets
 import uuid
 
 from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel, Field, field_validator
-from sqlalchemy import create_engine, select, text
+from sqlalchemy import create_engine, delete, func, select, text
 from sqlalchemy.orm import Session
 
 from backend.app.errors import NotFoundError, TraceQError
 from backend.app.domain.events import SUPPORTED_EVENT_TYPES
 from backend.app.persistence.database import SessionLocal, get_db
-from backend.app.persistence.models import AuditEntry, CryptoProfile, EventSource, Role, SecurityAlert, User
+from backend.app.persistence.models import (
+    AuditEntry,
+    CryptoProfile,
+    EventSource,
+    IntegrityCheckpoint,
+    Permission,
+    RawEvent,
+    Role,
+    RolePermission,
+    SecurityAlert,
+    User,
+    UserRole,
+)
 from backend.app.security.key_provider import CRYPTO_PROFILES
 from backend.app.projections.rebuild import mark_projection_failed, rebuild_item
 from backend.app.security.audit import write_audit
 from backend.app.security.auth import Principal, require_critical_permission, require_permission
-from backend.app.security.integrity import verify_integrity
-from backend.app.security.checkpoints import create_classic_checkpoint
+from backend.app.security.integrity import verify_audit_integrity, verify_integrity
+from backend.app.security.checkpoint_keys import EnvCheckpointKeyProvider
+from backend.app.security.checkpoints import (
+    create_checkpoint,
+    profile_readiness,
+    require_profile_ready,
+    verify_checkpoint,
+)
 from backend.app.security.passwords import hash_password
-from backend.app.security.crypto import token_hash
-from backend.app.security.permissions import ROLE_PERMISSIONS
+from backend.app.security.crypto import token_hash, utcnow
+from backend.app.security.permissions import (
+    PERMISSION_CATALOG,
+    PERMISSIONS,
+    ROLE_PERMISSIONS,
+    SYSTEM_LOCKED_ROLES,
+)
 from backend.app.settings import Settings, get_settings
 
 
 router = APIRouter(prefix="/api/v1/admin", tags=["admin"])
+RBAC_UPDATE_LOCK_ID = 0x5452414345524241
 
 
 class UserCreate(BaseModel):
@@ -40,12 +65,39 @@ class UserPatch(BaseModel):
     roles: list[str] | None = None
 
 
+class RolePermissionsPatch(BaseModel):
+    permissions: list[str]
+    reason: str = Field(min_length=3, max_length=500)
+
+    @field_validator("reason")
+    @classmethod
+    def _meaningful_reason(cls, value: str) -> str:
+        value = value.strip()
+        if len(value) < 3:
+            raise ValueError("reason must contain at least 3 non-whitespace characters")
+        return value
+
+
+class CryptoProfilePatch(BaseModel):
+    profile_id: str = Field(pattern="^(CLASSIC_V1|HYBRID_PQ_V1)$")
+    reason: str = Field(min_length=3, max_length=500)
+
+    @field_validator("reason")
+    @classmethod
+    def _meaningful_reason(cls, value: str) -> str:
+        value = value.strip()
+        if len(value) < 3:
+            raise ValueError("reason must contain at least 3 non-whitespace characters")
+        return value
+
+
 class SourceCreate(BaseModel):
     source_id: str = Field(min_length=1, max_length=128, pattern=r"^[A-Za-z0-9_.:-]+$")
     source_type: str = Field(min_length=1, max_length=64)
     allowed_event_types: list[str] = Field(min_length=1)
     token: str | None = Field(default=None, min_length=24, max_length=512)
     auth_method: str = Field(default="shared_secret_legacy", pattern="^(shared_secret_legacy|HMAC_V1)$")
+    key_id: str | None = Field(default=None, min_length=1, max_length=128)
     allowed_line_ids: list[str] = Field(default_factory=list)
     allowed_station_ids: list[str] = Field(default_factory=list)
 
@@ -82,6 +134,15 @@ def list_users(
     _: Principal = Depends(require_permission("MANAGE_USERS")),
     db: Session = Depends(get_db),
 ):
+    users = db.scalars(select(User).order_by(User.username)).all()
+    permission_rows = db.execute(
+        select(UserRole.user_id, Permission.name)
+        .join(RolePermission, RolePermission.role_id == UserRole.role_id)
+        .join(Permission, Permission.id == RolePermission.permission_id)
+    ).all()
+    effective: dict[uuid.UUID, set[str]] = {}
+    for user_id, permission_name in permission_rows:
+        effective.setdefault(user_id, set()).add(permission_name)
     return [
         {
             "id": user.id,
@@ -89,12 +150,213 @@ def list_users(
             "display_name": user.display_name,
             "enabled": user.enabled,
             "roles": [role.name for role in user.roles],
-            "effective_permissions": sorted(
-                set().union(*(ROLE_PERMISSIONS.get(role.name, set()) for role in user.roles))
-            ),
+            "effective_permissions": sorted(effective.get(user.id, set())),
         }
-        for user in db.scalars(select(User).order_by(User.username)).all()
+        for user in users
     ]
+
+
+def _permission_catalog() -> list[dict[str, str | bool]]:
+    return [
+        {
+            "name": name,
+            "label": PERMISSION_CATALOG[name]["label"],
+            "description": PERMISSION_CATALOG[name]["description"],
+            "critical": name in {"MANAGE_USERS", "ROTATE_KEYS", "CHANGE_CRYPTO_PROFILE"},
+        }
+        for name in PERMISSIONS
+    ]
+
+
+def _current_role_permissions(db: Session, role_id: uuid.UUID) -> set[str]:
+    return set(
+        db.scalars(
+            select(Permission.name)
+            .join(RolePermission, RolePermission.permission_id == Permission.id)
+            .where(RolePermission.role_id == role_id)
+        ).all()
+    )
+
+
+@router.get("/roles")
+def list_roles(
+    _: Principal = Depends(require_permission("MANAGE_USERS")),
+    db: Session = Depends(get_db),
+):
+    catalog = _permission_catalog()
+    rows = []
+    for role in db.scalars(select(Role).order_by(Role.name)).all():
+        current = _current_role_permissions(db, role.id)
+        defaults = set(ROLE_PERMISSIONS.get(role.name, set()))
+        rows.append(
+            {
+                "id": role.id,
+                "name": role.name,
+                "description": role.description,
+                "permissions": sorted(current),
+                "default_permissions": sorted(defaults),
+                "customized": current != defaults,
+                "system_locked": role.name in SYSTEM_LOCKED_ROLES,
+                "permission_catalog": catalog,
+            }
+        )
+    return rows
+
+
+@router.get("/permissions")
+def list_permissions(
+    _: Principal = Depends(require_permission("MANAGE_USERS")),
+):
+    return _permission_catalog()
+
+
+def _has_enabled_human_admin(
+    db: Session,
+    *,
+    changed_role_id: uuid.UUID,
+    changed_permissions: set[str],
+) -> bool:
+    manager_role_ids = set(
+        db.scalars(
+            select(RolePermission.role_id)
+            .join(Permission, Permission.id == RolePermission.permission_id)
+            .where(Permission.name == "MANAGE_USERS")
+        ).all()
+    )
+    if "MANAGE_USERS" in changed_permissions:
+        manager_role_ids.add(changed_role_id)
+    else:
+        manager_role_ids.discard(changed_role_id)
+
+    # Lock enabled users so two concurrent role updates cannot both conclude that
+    # the other role still provides the final administrative capability.
+    users = db.scalars(
+        select(User).where(User.enabled.is_(True)).with_for_update()
+    ).unique().all()
+    return any(
+        any(role.name not in SYSTEM_LOCKED_ROLES for role in user.roles)
+        and any(role.id in manager_role_ids for role in user.roles)
+        for user in users
+    )
+
+
+def _has_enabled_human_admin_after_user_change(
+    db: Session,
+    *,
+    changed_user_id: uuid.UUID,
+    changed_enabled: bool,
+    changed_roles: list[Role],
+) -> bool:
+    manager_role_ids = set(
+        db.scalars(
+            select(RolePermission.role_id)
+            .join(Permission, Permission.id == RolePermission.permission_id)
+            .where(Permission.name == "MANAGE_USERS")
+        ).all()
+    )
+    users = db.scalars(select(User).with_for_update()).unique().all()
+    for user in users:
+        enabled = changed_enabled if user.id == changed_user_id else user.enabled
+        roles = changed_roles if user.id == changed_user_id else user.roles
+        if (
+            enabled
+            and any(role.name not in SYSTEM_LOCKED_ROLES for role in roles)
+            and any(role.id in manager_role_ids for role in roles)
+        ):
+            return True
+    return False
+
+
+@router.patch("/roles/{role_id}/permissions")
+def patch_role_permissions(
+    role_id: uuid.UUID,
+    body: RolePermissionsPatch,
+    request: Request,
+    principal: Principal = Depends(require_critical_permission("MANAGE_USERS")),
+    db: Session = Depends(get_db),
+):
+    db.execute(
+        text("SELECT pg_advisory_xact_lock(:lock_id)"),
+        {"lock_id": RBAC_UPDATE_LOCK_ID},
+    )
+    role = db.scalar(select(Role).where(Role.id == role_id).with_for_update())
+    if role is None:
+        raise NotFoundError("Role")
+    if role.name in SYSTEM_LOCKED_ROLES:
+        raise TraceQError("SYSTEM_ROLE_LOCKED", "System role permissions cannot be changed", 409)
+
+    requested = set(body.permissions)
+    known = set(db.scalars(select(Permission.name)).all())
+    unknown = requested - known
+    if unknown:
+        raise TraceQError(
+            "UNKNOWN_PERMISSION",
+            f"Unknown permissions: {', '.join(sorted(unknown))}",
+            422,
+        )
+
+    before = _current_role_permissions(db, role.id)
+    if not _has_enabled_human_admin(
+        db, changed_role_id=role.id, changed_permissions=requested
+    ):
+        raise TraceQError(
+            "LAST_ADMIN_CAPABILITY",
+            "At least one enabled human user must retain MANAGE_USERS",
+            409,
+        )
+
+    by_name = {
+        permission.name: permission
+        for permission in db.scalars(
+            select(Permission).where(Permission.name.in_(requested))
+        ).all()
+    }
+    removed = before - requested
+    added = requested - before
+    if removed:
+        removed_ids = [
+            permission.id
+            for permission in db.scalars(
+                select(Permission).where(Permission.name.in_(removed))
+            ).all()
+        ]
+        db.execute(
+            delete(RolePermission).where(
+                RolePermission.role_id == role.id,
+                RolePermission.permission_id.in_(removed_ids),
+            )
+        )
+    for name in added:
+        db.add(RolePermission(role_id=role.id, permission_id=by_name[name].id))
+
+    details = {
+        "role": role.name,
+        "before": sorted(before),
+        "after": sorted(requested),
+        "added": sorted(added),
+        "removed": sorted(removed),
+        "reason": body.reason,
+    }
+    write_audit(
+        db,
+        action="role_permissions_update",
+        outcome="success",
+        actor_user_id=principal.user_id,
+        session_id=principal.session_id,
+        target_type="role",
+        target_id=str(role.id),
+        request_id=request.state.request_id,
+        safe_details=details,
+    )
+    db.commit()
+    return {
+        "id": role.id,
+        "name": role.name,
+        "permissions": sorted(requested),
+        "default_permissions": sorted(ROLE_PERMISSIONS.get(role.name, set())),
+        "customized": requested != set(ROLE_PERMISSIONS.get(role.name, set())),
+        "system_locked": False,
+    }
 
 
 @router.post("/users")
@@ -140,20 +402,40 @@ def patch_user(
     principal: Principal = Depends(require_permission("MANAGE_USERS")),
     db: Session = Depends(get_db),
 ):
-    user = db.get(User, user_id)
+    db.execute(
+        text("SELECT pg_advisory_xact_lock(:lock_id)"),
+        {"lock_id": RBAC_UPDATE_LOCK_ID},
+    )
+    user = db.scalar(select(User).where(User.id == user_id).with_for_update())
     if not user:
         raise NotFoundError("User")
+    candidate_enabled = body.enabled if body.enabled is not None else user.enabled
+    candidate_roles = list(user.roles)
+    if body.roles is not None:
+        candidate_roles = list(
+            db.scalars(select(Role).where(Role.name.in_(body.roles))).all()
+        )
+        if len(candidate_roles) != len(set(body.roles)):
+            raise TraceQError("UNKNOWN_ROLE", "One or more roles are unknown", 422)
     if body.enabled is not None:
         if user.id == principal.user_id and not body.enabled:
             raise TraceQError("CANNOT_DISABLE_SELF", "You cannot disable your own account", 409)
-        user.enabled = body.enabled
+    if (body.enabled is not None or body.roles is not None) and not _has_enabled_human_admin_after_user_change(
+        db,
+        changed_user_id=user.id,
+        changed_enabled=candidate_enabled,
+        changed_roles=candidate_roles,
+    ):
+        raise TraceQError(
+            "LAST_ADMIN_CAPABILITY",
+            "At least one enabled human user must retain MANAGE_USERS",
+            409,
+        )
+    user.enabled = candidate_enabled
     if body.display_name is not None:
         user.display_name = body.display_name
     if body.roles is not None:
-        roles = db.scalars(select(Role).where(Role.name.in_(body.roles))).all()
-        if len(roles) != len(set(body.roles)):
-            raise TraceQError("UNKNOWN_ROLE", "One or more roles are unknown", 422)
-        user.roles = list(roles)
+        user.roles = candidate_roles
     write_audit(
         db,
         action="user_update",
@@ -196,17 +478,37 @@ def create_source(
     request: Request,
     principal: Principal = Depends(require_permission("MANAGE_INTEGRATIONS")),
     db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
 ):
     if db.get(EventSource, body.source_id):
         raise TraceQError("SOURCE_EXISTS", "Source ID already exists", 409)
-    token = body.token or secrets.token_urlsafe(36)
+    token: str | None = None
+    key_id: str | None = None
+    token_hash_value: str | None = None
+    if body.auth_method == "HMAC_V1":
+        key_id = body.key_id or body.source_id
+        configured = {}
+        if settings.source_hmac_secrets_json:
+            configured = json.loads(settings.source_hmac_secrets_json.get_secret_value())
+        if not isinstance(configured, dict) or key_id not in configured:
+            raise TraceQError(
+                "HMAC_KEY_NOT_PROVISIONED",
+                "HMAC key_id must already exist in SOURCE_HMAC_SECRETS_JSON",
+                422,
+            )
+    else:
+        token = body.token or secrets.token_urlsafe(36)
+        token_hash_value = token_hash(token)
+
     source = EventSource(
         source_id=body.source_id,
         source_type=body.source_type,
         enabled=True,
-        token_hash=token_hash(token),
+        token_hash=token_hash_value,
         status="ACTIVE",
         auth_method=body.auth_method,
+        key_id=key_id,
+        secret_env_name="SOURCE_HMAC_SECRETS_JSON" if key_id else None,
         allowed_event_types=sorted(set(body.allowed_event_types)),
         allowed_line_ids=sorted(set(body.allowed_line_ids)),
         allowed_station_ids=sorted(set(body.allowed_station_ids)),
@@ -227,7 +529,12 @@ def create_source(
         },
     )
     db.commit()
-    return {"source_id": source.source_id, "token": token, "warning": "Token is shown only once"}
+    response = {"source_id": source.source_id, "auth_method": source.auth_method}
+    if token is not None:
+        response.update({"token": token, "warning": "Token is shown only once"})
+    else:
+        response.update({"key_id": source.key_id, "warning": "HMAC secret remains in the external secret store"})
+    return response
 
 
 @router.patch("/sources/{source_id}")
@@ -303,23 +610,86 @@ def security_alerts(
 
 
 @router.get("/crypto-profile")
-def crypto_profile(_: Principal = Depends(require_permission("VERIFY_INTEGRITY")), db: Session = Depends(get_db)):
+def crypto_profile(
+    _: Principal = Depends(require_permission("VERIFY_INTEGRITY")),
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+):
     active = db.scalar(select(CryptoProfile).where(CryptoProfile.status == "ACTIVE"))
     profile_id = active.profile_id if active else "CLASSIC_V1"
-    return {"profile_id": profile_id, "algorithms": CRYPTO_PROFILES[profile_id],
-            "pq_available": False, "keys_stored_in_database": False}
+    provider = EnvCheckpointKeyProvider(settings)
+    readiness = profile_readiness(profile_id, provider)
+    latest = db.scalar(
+        select(IntegrityCheckpoint).order_by(IntegrityCheckpoint.created_at.desc()).limit(1)
+    )
+    latest_verification = verify_checkpoint(latest, provider).as_dict() if latest else None
+    return {
+        "profile_id": profile_id,
+        "algorithms": CRYPTO_PROFILES[profile_id],
+        "available_profiles": list(CRYPTO_PROFILES),
+        "readiness": readiness,
+        "pq_available": readiness["pq"]["runtime_available"],
+        "latest_checkpoint": latest_verification,
+        "keys_stored_in_database": False,
+    }
+
+
+@router.patch("/crypto-profile")
+def activate_crypto_profile(
+    body: CryptoProfilePatch,
+    request: Request,
+    principal: Principal = Depends(require_critical_permission("CHANGE_CRYPTO_PROFILE")),
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+):
+    provider = EnvCheckpointKeyProvider(settings)
+    readiness = require_profile_ready(body.profile_id, provider)
+    before = db.scalar(select(CryptoProfile.profile_id).where(CryptoProfile.status == "ACTIVE"))
+    profiles = db.scalars(select(CryptoProfile).with_for_update()).all()
+    by_id = {row.profile_id: row for row in profiles}
+    target = by_id.get(body.profile_id)
+    if target is None:
+        target = CryptoProfile(
+            profile_id=body.profile_id,
+            algorithms=CRYPTO_PROFILES[body.profile_id],
+        )
+        db.add(target)
+    for row in profiles:
+        row.status = "INACTIVE"
+    target.status = "ACTIVE"
+    target.algorithms = CRYPTO_PROFILES[body.profile_id]
+    target.activated_at = utcnow()
+    write_audit(
+        db,
+        action="crypto_profile_activate",
+        outcome="success",
+        actor_user_id=principal.user_id,
+        session_id=principal.session_id,
+        target_type="crypto_profile",
+        target_id=body.profile_id,
+        request_id=request.state.request_id,
+        safe_details={"before": before, "after": body.profile_id, "reason": body.reason},
+    )
+    db.commit()
+    return {"profile_id": body.profile_id, "readiness": readiness}
 
 
 @router.post("/integrity/checkpoints/{stream_id}")
 def checkpoint(stream_id: str, request: Request,
                principal: Principal = Depends(require_critical_permission("ROTATE_KEYS")),
                db: Session = Depends(get_db), settings: Settings = Depends(get_settings)):
-    row = create_classic_checkpoint(db, stream_id, settings)
+    row = create_checkpoint(db, stream_id, settings)
     write_audit(db, action="integrity_checkpoint", outcome="success", actor_user_id=principal.user_id,
                 session_id=principal.session_id, target_type="integrity_stream", target_id=stream_id,
                 request_id=request.state.request_id, safe_details={"profile": row.crypto_profile_id, "sequence": row.sequence})
     db.commit()
-    return {"checkpoint_id": row.id, "profile": row.crypto_profile_id, "sequence": row.sequence}
+    verification = verify_checkpoint(row, EnvCheckpointKeyProvider(settings))
+    return {
+        "checkpoint_id": row.id,
+        "profile": row.crypto_profile_id,
+        "sequence": row.sequence,
+        "verification": verification.as_dict(),
+    }
 
 
 @router.post("/integrity/verify")
@@ -329,22 +699,59 @@ def integrity_check(
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings),
 ):
-    failures = verify_integrity(db, settings)
+    checked_at = utcnow()
+    raw_events_checked = db.scalar(select(func.count(RawEvent.event_id))) or 0
+    audit_entries_checked = db.scalar(select(func.count(AuditEntry.id))) or 0
+    raw_failures = verify_integrity(db, settings)
+    audit_failures = verify_audit_integrity(db, settings)
+    provider = EnvCheckpointKeyProvider(settings)
+    checkpoint_results = [
+        verify_checkpoint(row, provider).as_dict()
+        for row in db.scalars(
+            select(IntegrityCheckpoint).order_by(IntegrityCheckpoint.created_at)
+        ).all()
+    ]
+    failed = bool(
+        raw_failures
+        or audit_failures
+        or any(row["overall"] == "FAILED" for row in checkpoint_results)
+    )
+    unverifiable = any(row["overall"] == "UNVERIFIABLE" for row in checkpoint_results)
     write_audit(
         db,
         action="integrity_verification",
-        outcome="failure" if failures else "success",
+        outcome="failure" if failed else "success",
         actor_user_id=principal.user_id,
         session_id=principal.session_id,
         target_type="system",
-        target_id="raw_event_integrity",
+        target_id="raw_and_audit_integrity",
         request_id=request.state.request_id,
-        safe_details={"failure_count": len(failures)},
+        safe_details={
+            "raw_failure_count": len(raw_failures),
+            "audit_failure_count": len(audit_failures),
+            "checkpoint_failed_count": sum(
+                row["overall"] == "FAILED" for row in checkpoint_results
+            ),
+            "checkpoint_unverifiable_count": sum(
+                row["overall"] == "UNVERIFIABLE" for row in checkpoint_results
+            ),
+        },
     )
     db.commit()
     return {
-        "status": "FAILED" if failures else "OK",
-        "failures": [failure.__dict__ for failure in failures],
+        "status": "FAILED" if failed else ("UNVERIFIABLE" if unverifiable else "OK"),
+        "checked_at": checked_at,
+        "raw_events_checked": raw_events_checked,
+        "audit_entries_checked": audit_entries_checked,
+        "crypto_profile": (
+            db.scalar(
+                select(CryptoProfile.profile_id).where(CryptoProfile.status == "ACTIVE")
+            )
+            or "CLASSIC_V1"
+        ),
+        "raw_failures": [failure.__dict__ for failure in raw_failures],
+        "audit_failures": [failure.__dict__ for failure in audit_failures],
+        "checkpoint_results": checkpoint_results,
     }
 
 

@@ -1,13 +1,15 @@
 # Events and contracts
 
-The source of truth is [the JSON Schema](../contracts/events/canonical-event.schema.json). Generated registry artifacts live in `shared_contracts/generated/` and are checked with:
+The source of truth is [the JSON Schema](../contracts/events/canonical-event.schema.json). Generated Pydantic payload models, TypeScript interfaces, and the contract registry live in `shared_contracts/generated/`. `scripts/generate_contracts.py` renders all three artifacts deterministically from the JSON Schema; `--check` regenerates into a temporary location and fails on drift. They are checked with:
 
 ```bash
 make generate-contracts
 make check-contracts
 ```
 
-Supported P0 types at exact version `1.0` are `item.registered`, `operation.started`, `operation.finished`, `inspection.result`, `machine.state`, and `operator.action`. Unknown versions return `UNSUPPORTED_SCHEMA_VERSION`; parsers for versions present in raw history must not be removed.
+Supported P0 types at exact version `1.0` are `item.registered`, `operation.started`, `operation.finished`, `inspection.result`, `machine.state`, `operator.action`, and `control_device.invalidated`. Unknown versions return `UNSUPPORTED_SCHEMA_VERSION`; parsers for versions present in raw history must not be removed.
+
+`analyzer_version` is not a current P0 field. The isolated [1.1 evolution proof](../contracts/events/evolution/README.md) adds it only to a non-runtime demonstration schema, generates separate Python/TypeScript/registry artifacts, and proves stale-output detection. Run `make check-contract-evolution`; the runtime registry remains `1.0` only.
 
 External sources authenticate independently from human users with `X-Source-Id` and `X-Source-Token`. A source is enabled and restricted to explicit event types. Random high-entropy tokens are stored only as SHA-256 hashes and compared in constant time; they are never logged. Human passwords separately use the deliberately expensive Argon2id scheme.
 

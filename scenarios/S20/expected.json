@@ -5,5 +5,5 @@
   ],
   "raw_event_count_delta": 0,
   "ncr_count_delta": 0,
-  "security_alert": "SOURCE_NOT_AUTHORIZED"
+  "security_alert": "SOURCE_AUTH_FAILED"
 }

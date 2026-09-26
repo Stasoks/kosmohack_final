@@ -1,95 +1,468 @@
 # TRACE-Q
 
-TRACE-Q is an event-driven MVP for quality control and traceability of physical products. It keeps the encrypted source history separate from rebuildable projections, explains each Defect Birth Window through stored evidence, and leaves the final quality verdict to an authorized controller.
+TRACE-Q — MVP системы интеллектуального контроля качества и прослеживаемости изделий.
 
-## Architecture
+Система принимает структурированные производственные события и результаты контроля, формирует единую историю изделия, оценивает доверие к наблюдениям, регистрирует несоответствия, строит Defect Birth Window, поддерживает human-in-the-loop решение контролёра, rework/verification/release, аналитику и интеграцию с внешней ERP через transactional Outbox.
+
+Подробное описание решения: [`DOCUMENTATION.md`](DOCUMENTATION.md).
+
+## 1. Требования
+
+Нужны:
+
+- Docker Engine;
+- Docker Compose v2;
+- Git;
+- примерно 1 ГБ свободной RAM;
+- свободные порты:
 
 ```text
-Browser → Streamlit → FastAPI → PostgreSQL 16
-                         ↕
-                    ERP Emulator
-                         ↑
-                    Outbox worker
+8501   Streamlit UI
+8080   FastAPI
+8070   Factory Simulator
+8090   ERP Emulator
+55432  PostgreSQL debug port
 ```
 
-Streamlit never connects to PostgreSQL. Authentication, RBAC, event validation, replay, decisions, integration, audit, and integrity checks are enforced by FastAPI and PostgreSQL.
+Локальный Python не нужен, если требуется только запустить demo stack.
 
-## Quick start (demo only)
+## 2. Получить актуальный код
 
-Requirements: Docker with Compose, approximately 1 GB free RAM, and ports `8501`, `8080`, `8090`, and debug-only `55432` available on localhost.
+Если используется рабочая ветка проекта:
 
 ```bash
-cp .env.example .env
-docker compose -f compose.yaml -f compose.demo.yaml up --build
+git switch chatgpt/hardening-fixes
+git fetch origin
+git pull --ff-only origin chatgpt/hardening-fixes
 ```
 
-Open <http://localhost:8501>. API documentation is available in demo mode at <http://localhost:8080/docs>.
+Перейдите в корень репозитория:
 
-The values below are deliberately non-production credentials from `.env.example`:
+```bash
+cd ~/python_prjcts/kosmohack_final
+```
 
-| Role | Username | Password |
-|---|---|---|
-| Quality controller | `controller` | `controller-demo` |
-| Area master | `master` | `master-demo` |
-| Technologist | `technologist` | `technologist-demo` |
-| Production manager | `manager` | `manager-demo` |
-| Administrator | `admin` | `admin-demo` |
+## 3. Первый запуск
 
-Never reuse these credentials or the demo crypto keys outside the demo profile. With `DEMO_MODE=false`, known demo secrets are rejected during startup.
+```bash
+cp -n .env.example .env
 
-## Demo scenarios
+docker compose -f compose.yaml -f compose.demo.yaml up -d --build --wait
 
-Log in as any demo user, open **Scenario Runner**, reset demo data, and run `S03_new_defect`. Then log in as `controller`, open **Решения QC**, and confirm the NCR with `REWORK_REQUIRED` and `HOLD`.
+bash scripts/local_smoke.sh
+```
 
-For the full demonstration sequence, including ERP timeout/recovery and tamper detection, see [docs/scenarios.md](docs/scenarios.md).
+`cp -n` не перезапишет уже существующий `.env`.
 
-## Tests and contracts
+Успешный smoke должен закончиться:
+
+```text
+TRACE-Q local smoke: OK
+```
+
+## 4. URL
+
+### Streamlit
+
+```text
+http://localhost:8501
+```
+
+### Swagger / FastAPI
+
+```text
+http://localhost:8080/docs
+```
+
+### Backend readiness
+
+```text
+http://localhost:8080/health/ready
+```
+
+### ERP Emulator
+
+```text
+http://localhost:8090/health
+```
+
+## 5. Тестовые пользователи
+
+Все данные ниже предназначены только для `DEMO_MODE=true`.
+
+| Пользователь | Роль | Пароль | Основное назначение |
+|---|---|---|---|
+| `controller` | Контролёр качества | `controller-demo` | NCR, controller decision, rework verification |
+| `master` | Мастер участка | `master-demo` | изделия, история, analytics, overview |
+| `technologist` | Технолог | `technologist-demo` | routes, Coverage Gap, Blast Radius, analytics |
+| `manager` | Руководитель производства | `manager-demo` | realtime dashboard, analytics, audit |
+| `admin` | Администратор | `admin-demo` | users, roles, integrations, integrity, crypto |
+| `factory-simulator` | Служебный read-only пользователь | `simulator-reader-demo` | используется Factory Simulator, вручную обычно не нужен |
+
+Не используйте demo credentials и demo crypto keys в production.
+
+## 6. Быстрая проверка
+
+```bash
+docker compose -f compose.yaml -f compose.demo.yaml ps
+bash scripts/local_smoke.sh
+bash scripts/simulator_smoke.sh
+```
+
+Readiness:
+
+```bash
+curl -fsS http://127.0.0.1:8080/health/ready
+```
+
+## 7. Быстрый demo
+
+### Приёмочные сценарии
+
+Откройте страницу:
+
+```text
+Приёмочные сценарии
+```
+
+Полезные сценарии:
+
+```text
+S03  Birth Window + equipment warning как context
+S08  decision → rework → repeat inspection → release
+S09  tamper detection
+S17  Evidence Invalidation
+S18  Blast Radius
+S19  ERP offline → retry → ACK
+S22  RBAC / Controlled Release Gate
+```
+
+### Live Factory Simulator
+
+Откройте:
+
+```text
+Симуляция производства
+```
+
+Запустите режим:
+
+```text
+Дефект и доработка
+```
+
+Когда симуляция дойдёт до ожидания решения:
+
+1. во второй вкладке войдите как `controller`;
+2. откройте `Контроль качества`;
+3. подтвердите NCR;
+4. выберите `REWORK_REQUIRED`;
+5. вернитесь к симуляции;
+6. дождитесь rework и повторного контроля;
+7. выполните verification/release.
+
+## 8. Realtime Dashboard
+
+Войдите как:
+
+```text
+manager / manager-demo
+```
+
+Откройте `Обзор`.
+
+Сверху должен быть оперативный мониторинг:
+
+```text
+Проверено
+GOOD
+Сигналы дефекта
+Подтверждённые NCR
+FPY
+Ожидают решения
+На доработке
+Выпущено
+```
+
+Блок обновляется автоматически примерно каждые 2 секунды.
+
+Ожидаемая логика:
+
+```text
+trusted GOOD
+→ GOOD +1
+
+trusted DEFECT
+→ Сигналы дефекта +1
+→ confirmed NCR пока не увеличивается
+
+controller confirms NCR
+→ Подтверждённые NCR +1
+
+rework
+→ На доработке +1
+
+repeat GOOD + verification/release
+→ На доработке уменьшается
+→ Выпущено увеличивается
+```
+
+## 9. Логи
+
+Все сервисы:
+
+```bash
+docker compose -f compose.yaml -f compose.demo.yaml logs -f
+```
+
+Backend:
+
+```bash
+docker compose -f compose.yaml -f compose.demo.yaml logs -f backend
+```
+
+Worker:
+
+```bash
+docker compose -f compose.yaml -f compose.demo.yaml logs -f worker
+```
+
+ERP Emulator:
+
+```bash
+docker compose -f compose.yaml -f compose.demo.yaml logs -f erp-emulator
+```
+
+## 10. Остановить приложение
+
+Без удаления данных:
+
+```bash
+docker compose -f compose.yaml -f compose.demo.yaml down
+```
+
+Запустить снова без rebuild:
+
+```bash
+docker compose -f compose.yaml -f compose.demo.yaml up -d --wait
+```
+
+## 11. Rebuild после изменений
+
+```bash
+docker compose -f compose.yaml -f compose.demo.yaml up -d --build --wait
+```
+
+## 12. Полный чистый reset
+
+**Внимание:** команда удалит локальный PostgreSQL volume.
+
+```bash
+docker compose -f compose.yaml -f compose.demo.yaml down -v --remove-orphans
+
+docker compose -f compose.yaml -f compose.demo.yaml up -d --build --wait
+
+bash scripts/local_smoke.sh
+```
+
+Перед презентацией это полезно, если manual tests загрязнили demo DB.
+
+## 13. Автоматические тесты
+
+### Unit
 
 ```bash
 ./scripts/run_tests.sh unit
-./scripts/run_tests.sh postgres
-./scripts/run_tests.sh scenarios
-./scripts/run_tests.sh security
+```
+
+### Contracts
+
+```bash
 ./scripts/run_tests.sh contracts
+```
+
+### Security
+
+```bash
+./scripts/run_tests.sh security
+```
+
+### PostgreSQL
+
+```bash
+./scripts/run_tests.sh postgres
+```
+
+### S01–S25
+
+```bash
+./scripts/run_tests.sh scenarios
+```
+
+### Всё
+
+```bash
 ./scripts/run_tests.sh all
 ```
 
-PostgreSQL integration tests use `TRACEQ_TEST_DATABASE_URL`; SQLite is intentionally not a supported integration fallback.
+## 14. Realtime dashboard tests
 
-## What to show during review
+```bash
+pytest backend/tests/test_live_quality.py -q
+RUN_POSTGRES_TESTS=1 pytest backend/tests/test_live_quality_postgres.py -q
+```
 
-1. Item timeline with trusted GOOD, operation, warning, and trusted DEFECT.
-2. Bounded Defect Birth Window and its boundary/context/limitation evidence.
-3. `cause_status = not_established`: a machine warning is context, not an automatic root cause.
-4. Append-only controller decision committed while ERP is unavailable.
-5. Outbox retry with the same `message_id`, followed by ERP ACK.
-6. Late event creating AnalysisVersion v2.
-7. Admin-only tamper and integrity verification failure.
+## 15. Factory Simulator tests
 
-## Documentation
+```bash
+pytest factory_simulator/tests -q
+bash scripts/simulator_smoke.sh
+```
 
-- [Architecture](docs/architecture.md)
-- [Domain model](docs/domain.md)
-- [Events and contracts](docs/events.md)
-- [Quality analysis](docs/quality-analysis.md)
-- [Routes](docs/routes.md)
-- [Integrations](docs/integrations.md)
-- [Security](docs/security.md)
-- [Scenarios](docs/scenarios.md)
-- [Vision-control design](docs/vision-control-design.md)
-- [Recovery](docs/recovery.md)
-- [Assumptions and limitations](docs/assumptions.md)
+## 16. TRACE-Q Doctor
 
-## Current assumptions and boundaries
+До запуска:
 
-- Input observations are structured results from external VisionQC/OperatorVision systems; TRACE-Q contains no proprietary CV model.
-- Synthetic identifiers and parameters are not industrial validation data.
-- Root cause is never established automatically.
-- The JSON product-structure provider keeps item-level QC operational when component structure is unavailable.
-- Real 1C, Galaktika, MES, and KOMPAS transports require site-specific API details and credentials; the business-facing ports and fixture adapters are present without invented vendor URLs.
+```bash
+python scripts/traceq_doctor.py --mode preflight
+```
 
-## Completed hardening scope
+После запуска:
 
-The canonical envelope owns `item_id` and `operation_run_id`; payloads do not duplicate them. Items pin a RouteRevision at registration. Source Registry supports lifecycle status, event/line/station scopes, legacy shared secrets and HMAC_V1 nonce replay protection. Server-side sessions revoke access immediately for critical actions. Rework requires a completed rework run, trusted repeat GOOD and controller verification before controlled outbound release. Evidence invalidation, Blast Radius proposals with separation of duties, S01-S25 Harness V2, occurrence-based KPI, security alerts, isolated test compose and optional hybrid-PQ profile metadata are included.
+```bash
+python scripts/traceq_doctor.py --mode live
+```
 
-Tests/build were prepared but intentionally not executed by the implementation agent.
+Полностью:
+
+```bash
+python scripts/traceq_doctor.py --mode all
+```
+
+## 17. Final acceptance runner
+
+```bash
+python scripts/verify_final_improvements.py --default
+```
+
+Optional PQ:
+
+```bash
+uv sync --all-groups --extra pq
+python scripts/verify_final_improvements.py --pq
+```
+
+Всё вместе:
+
+```bash
+python scripts/verify_final_improvements.py --all
+```
+
+## 18. Isolated PostgreSQL suite
+
+```bash
+docker compose -f compose.test.yaml down -v --remove-orphans
+
+docker compose -f compose.test.yaml up -d --build postgres-test
+
+docker compose -f compose.test.yaml run --rm migrate-test
+
+docker compose -f compose.test.yaml run --rm seed-test
+
+docker compose -f compose.test.yaml run --rm postgres-tests
+
+docker compose -f compose.test.yaml down -v --remove-orphans
+```
+
+Не запускайте destructive test/scaling scripts против production database.
+
+## 19. Если что-то не стартует
+
+### Проверить контейнеры
+
+```bash
+docker compose -f compose.yaml -f compose.demo.yaml ps
+```
+
+### Backend alive, но not ready
+
+```bash
+curl -fsS http://127.0.0.1:8080/health/ready
+
+docker compose -f compose.yaml -f compose.demo.yaml logs migrate seed backend
+```
+
+### Порт занят
+
+```bash
+ss -ltnp | grep -E ':8501|:8080|:8070|:8090|:55432'
+```
+
+### ERP / Outbox
+
+```bash
+docker compose -f compose.yaml -f compose.demo.yaml logs -f worker erp-emulator
+```
+
+## 20. Перед презентацией
+
+```bash
+git pull --ff-only
+
+docker compose -f compose.yaml -f compose.demo.yaml down -v --remove-orphans
+
+docker compose -f compose.yaml -f compose.demo.yaml up -d --build --wait
+
+bash scripts/local_smoke.sh
+bash scripts/simulator_smoke.sh
+
+docker compose -f compose.yaml -f compose.demo.yaml ps
+
+curl -fsS http://127.0.0.1:8080/health/ready
+```
+
+После этого открыть:
+
+```text
+http://localhost:8501
+```
+
+и вручную прогнать:
+
+```text
+S03
+S08
+Realtime Dashboard + Factory Simulator
+```
+
+## 21. Основные документы
+
+```text
+DOCUMENTATION.md
+docs/architecture.md
+docs/domain.md
+docs/events.md
+docs/quality-analysis.md
+docs/routes.md
+docs/integrations.md
+docs/security.md
+docs/scenarios.md
+docs/demo.md
+docs/LOCAL_RUNBOOK.md
+docs/MODULE_TESTING.md
+docs/LIVE_FACTORY_SIMULATOR.md
+docs/SIMULATOR_TESTING.md
+docs/REALTIME_DASHBOARD.md
+docs/SCALING_PROOF.md
+docs/limitations.md
+docs/assumptions.md
+```
+
+## 22. Важные границы MVP
+
+- TRACE-Q не содержит промышленно валидированной собственной CV-модели.
+- Machine warning не является автоматически доказанной причиной дефекта.
+- Defect signal не равен confirmed NCR.
+- Финальное решение по качеству остаётся за уполномоченным человеком.
+- Реальные 1С / Галактика / MES / КОМПАС требуют site-specific endpoints, credentials и mappings.
+- Demo credentials и demo crypto secrets не предназначены для production.

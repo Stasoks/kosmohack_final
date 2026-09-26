@@ -4,9 +4,20 @@
   "title": "TRACE-Q canonical event",
   "type": "object",
   "additionalProperties": false,
-  "required": ["event_id", "event_type", "schema_version", "occurred_at", "source", "payload"],
+  "required": [
+    "event_id",
+    "event_type",
+    "schema_version",
+    "occurred_at",
+    "source",
+    "payload"
+  ],
   "properties": {
-    "event_id": {"type": "string", "minLength": 1, "maxLength": 128},
+    "event_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
     "event_type": {
       "enum": [
         "item.registered",
@@ -18,172 +29,566 @@
         "control_device.invalidated"
       ]
     },
-    "schema_version": {"const": "1.0"},
-    "occurred_at": {"type": "string", "format": "date-time"},
-    "source": {"$ref": "#/$defs/source"},
-    "item_id": {"type": ["string", "null"], "minLength": 1, "maxLength": 128},
-    "operation_run_id": {"type": ["string", "null"], "minLength": 1, "maxLength": 128},
-    "payload": {"type": "object"}
+    "schema_version": {
+      "const": "1.0"
+    },
+    "occurred_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "source": {
+      "$ref": "#/$defs/source"
+    },
+    "item_id": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "operation_run_id": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "payload": {
+      "type": "object"
+    }
   },
   "allOf": [
     {
-      "if": {"properties": {"event_type": {"const": "item.registered"}}},
-      "then": {"properties": {"payload": {"$ref": "#/$defs/itemRegistered"}}}
+      "if": {
+        "properties": {
+          "event_type": {
+            "const": "item.registered"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "payload": {
+            "$ref": "#/$defs/itemRegistered"
+          }
+        }
+      }
     },
     {
-      "if": {"properties": {"event_type": {"const": "operation.started"}}},
-      "then": {"properties": {"payload": {"$ref": "#/$defs/operationStarted"}}}
+      "if": {
+        "properties": {
+          "event_type": {
+            "const": "operation.started"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "payload": {
+            "$ref": "#/$defs/operationStarted"
+          }
+        }
+      }
     },
     {
-      "if": {"properties": {"event_type": {"const": "operation.finished"}}},
-      "then": {"properties": {"payload": {"$ref": "#/$defs/operationFinished"}}}
+      "if": {
+        "properties": {
+          "event_type": {
+            "const": "operation.finished"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "payload": {
+            "$ref": "#/$defs/operationFinished"
+          }
+        }
+      }
     },
     {
-      "if": {"properties": {"event_type": {"const": "inspection.result"}}},
-      "then": {"properties": {"payload": {"$ref": "#/$defs/inspectionResult"}}}
+      "if": {
+        "properties": {
+          "event_type": {
+            "const": "inspection.result"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "payload": {
+            "$ref": "#/$defs/inspectionResult"
+          }
+        }
+      }
     },
     {
-      "if": {"properties": {"event_type": {"const": "machine.state"}}},
-      "then": {"properties": {"payload": {"$ref": "#/$defs/machineState"}}}
+      "if": {
+        "properties": {
+          "event_type": {
+            "const": "machine.state"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "payload": {
+            "$ref": "#/$defs/machineState"
+          }
+        }
+      }
     },
     {
-      "if": {"properties": {"event_type": {"const": "operator.action"}}},
-      "then": {"properties": {"payload": {"$ref": "#/$defs/operatorAction"}}}
+      "if": {
+        "properties": {
+          "event_type": {
+            "const": "operator.action"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "payload": {
+            "$ref": "#/$defs/operatorAction"
+          }
+        }
+      }
     },
     {
-      "if": {"properties": {"event_type": {"const": "control_device.invalidated"}}},
-      "then": {"properties": {"payload": {"$ref": "#/$defs/controlDeviceInvalidated"}}}
+      "if": {
+        "properties": {
+          "event_type": {
+            "const": "control_device.invalidated"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "payload": {
+            "$ref": "#/$defs/controlDeviceInvalidated"
+          }
+        }
+      }
     }
   ],
   "$defs": {
     "source": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["source_id", "source_type"],
+      "required": [
+        "source_id",
+        "source_type"
+      ],
       "properties": {
-        "source_id": {"type": "string", "minLength": 1, "maxLength": 128},
-        "source_type": {"type": "string", "minLength": 1, "maxLength": 64},
-        "sequence": {"type": ["integer", "null"], "minimum": 0}
+        "source_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "source_type": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "sequence": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        }
       }
     },
     "duration": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["value", "unit", "meaning"],
+      "required": [
+        "value",
+        "unit",
+        "meaning"
+      ],
       "properties": {
-        "value": {"type": "number", "minimum": 0},
-        "unit": {"enum": ["ms", "s", "min", "h"]},
-        "meaning": {"type": "string", "minLength": 1, "maxLength": 64}
+        "value": {
+          "type": "number",
+          "minimum": 0
+        },
+        "unit": {
+          "enum": [
+            "ms",
+            "s",
+            "min",
+            "h"
+          ]
+        },
+        "meaning": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        }
       }
     },
     "defect": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["defect_type"],
+      "required": [
+        "defect_type"
+      ],
       "properties": {
-        "defect_type": {"type": "string", "minLength": 1, "maxLength": 128},
-        "description": {"type": ["string", "null"], "maxLength": 2000},
-        "severity": {"enum": ["minor", "major", "critical", null]},
-        "component_instance_id": {"type": ["string", "null"], "maxLength": 128}
+        "defect_type": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "description": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 2000
+        },
+        "severity": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 32
+        },
+        "component_instance_id": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 128
+        },
+        "confidence": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 1
+        }
       }
     },
     "itemRegistered": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["product_definition_id", "revision"],
+      "required": [
+        "product_definition_id",
+        "revision"
+      ],
       "properties": {
-        "product_definition_id": {"type": "string", "minLength": 1},
-        "revision": {"type": "string", "minLength": 1},
-        "line_id": {"type": ["string", "null"]},
-        "route_id": {"type": ["string", "null"]},
-        "route_revision": {"type": ["integer", "null"], "minimum": 1}
+        "product_definition_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "revision": {
+          "type": "string",
+          "minLength": 1
+        },
+        "line_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "route_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "route_revision": {
+          "type": [
+            "integer",
+            "string",
+            "null"
+          ]
+        }
       }
     },
     "operationStarted": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["operation_id", "operator_id", "equipment_id", "station_id"],
+      "required": [
+        "operation_id",
+        "operator_id",
+        "equipment_id",
+        "station_id"
+      ],
       "properties": {
-        "operation_id": {"type": "string"},
-        "operator_id": {"type": "string"},
-        "equipment_id": {"type": "string"},
-        "station_id": {"type": "string"},
-        "parameters": {"type": ["object", "null"]},
-        "previous_operation_run_id": {"type": ["string", "null"]},
-        "run_reason": {"enum": ["production", "rework"]},
-        "rework_for_nonconformance_id": {"type": ["string", "null"]}
+        "operation_id": {
+          "type": "string"
+        },
+        "operator_id": {
+          "type": "string"
+        },
+        "equipment_id": {
+          "type": "string"
+        },
+        "station_id": {
+          "type": "string"
+        },
+        "parameters": {
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "previous_operation_run_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "run_reason": {
+          "enum": [
+            "production",
+            "rework"
+          ],
+          "default": "production"
+        },
+        "rework_for_nonconformance_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
       }
     },
     "operationFinished": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["completion_status"],
+      "required": [
+        "completion_status"
+      ],
       "properties": {
-        "completion_status": {"enum": ["completed", "failed", "aborted", "interrupted"]},
-        "duration": {"oneOf": [{"$ref": "#/$defs/duration"}, {"type": "null"}]},
-        "stop_reason": {"type": ["string", "null"]},
-        "parameters": {"type": ["object", "null"]}
+        "completion_status": {
+          "enum": [
+            "completed",
+            "failed",
+            "aborted",
+            "interrupted"
+          ]
+        },
+        "duration": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/duration"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "stop_reason": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "parameters": {
+          "type": [
+            "object",
+            "null"
+          ]
+        }
       }
     },
     "inspectionResult": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["inspection_result", "observation_quality", "control_point_id"],
+      "required": [
+        "inspection_result",
+        "observation_quality",
+        "control_point_id"
+      ],
       "properties": {
-        "inspection_result": {"enum": ["no_defect", "defect_detected", "impossible_to_assess"]},
-        "observation_quality": {"enum": ["good", "poor", "unknown"]},
-        "control_point_id": {"type": "string"},
-        "confidence": {"type": ["number", "null"], "minimum": 0, "maximum": 1},
-        "inspection_scope": {"type": ["object", "array", "null"]},
-        "defects": {"type": "array", "items": {"$ref": "#/$defs/defect"}},
-        "evidence_refs": {"type": "array", "items": {"type": "string"}},
-        "component_instance_id": {"type": ["string", "null"]},
-        "control_device_id": {"type": ["string", "null"]},
-        "capture_session_id": {"type": ["string", "null"]}
+        "inspection_result": {
+          "enum": [
+            "no_defect",
+            "defect_detected",
+            "impossible_to_assess"
+          ]
+        },
+        "observation_quality": {
+          "enum": [
+            "good",
+            "poor",
+            "unknown"
+          ]
+        },
+        "control_point_id": {
+          "type": "string"
+        },
+        "confidence": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 1
+        },
+        "inspection_scope": {
+          "type": [
+            "object",
+            "array",
+            "null"
+          ]
+        },
+        "defects": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/defect"
+          },
+          "default": []
+        },
+        "evidence_refs": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": []
+        },
+        "component_instance_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "control_device_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "capture_session_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
       }
     },
     "machineState": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["equipment_id", "state"],
+      "required": [
+        "equipment_id",
+        "state"
+      ],
       "properties": {
-        "equipment_id": {"type": "string"},
-        "state": {"type": "string"},
-        "code": {"type": ["string", "null"]},
-        "parameters": {"type": ["object", "null"]}
+        "equipment_id": {
+          "type": "string"
+        },
+        "state": {
+          "type": "string"
+        },
+        "code": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "parameters": {
+          "type": [
+            "object",
+            "null"
+          ]
+        }
       }
     },
     "operatorAction": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["operator_id", "action_type"],
+      "required": [
+        "operator_id",
+        "action_type"
+      ],
       "properties": {
-        "operator_id": {"type": "string"},
-        "action_type": {"type": "string"},
-        "parameters": {"type": ["object", "null"]}
+        "operator_id": {
+          "type": "string"
+        },
+        "action_type": {
+          "type": "string"
+        },
+        "parameters": {
+          "type": [
+            "object",
+            "null"
+          ]
+        }
       }
     },
     "controlDeviceInvalidated": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["device_id", "affected_from", "affected_to", "reason"],
+      "required": [
+        "device_id",
+        "affected_from",
+        "affected_to",
+        "reason"
+      ],
       "properties": {
-        "device_id": {"type": "string", "minLength": 1, "maxLength": 128},
-        "affected_from": {"type": "string", "format": "date-time"},
-        "affected_to": {"type": "string", "format": "date-time"},
-        "reason": {"type": "string", "minLength": 3, "maxLength": 2000},
-        "invalidation_type": {"type": ["string", "null"], "maxLength": 64},
-        "supporting_evidence_refs": {"type": "array", "items": {"type": "string"}, "maxItems": 100}
+        "device_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "affected_from": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "affected_to": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 2000
+        },
+        "invalidation_type": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 64
+        },
+        "supporting_evidence_refs": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 100,
+          "default": []
+        }
       }
     }
   },
   "x-event-types": {
-    "item.registered": ["1.0"],
-    "operation.started": ["1.0"],
-    "operation.finished": ["1.0"],
-    "inspection.result": ["1.0"],
-    "machine.state": ["1.0"],
-    "operator.action": ["1.0"],
-    "control_device.invalidated": ["1.0"]
+    "item.registered": [
+      "1.0"
+    ],
+    "operation.started": [
+      "1.0"
+    ],
+    "operation.finished": [
+      "1.0"
+    ],
+    "inspection.result": [
+      "1.0"
+    ],
+    "machine.state": [
+      "1.0"
+    ],
+    "operator.action": [
+      "1.0"
+    ],
+    "control_device.invalidated": [
+      "1.0"
+    ]
   }
 }

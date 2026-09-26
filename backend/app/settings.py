@@ -37,6 +37,8 @@ class Settings(BaseSettings):
     integrity_hmac_key_b64: SecretStr
     integrity_key_id: str = "integrity-key-v1"
     checkpoint_private_key_pem_b64: SecretStr | None = None
+    checkpoint_classic_keys_json: SecretStr | None = None
+    checkpoint_pq_keys_json: SecretStr | None = None
 
     erp_emulator_url: str = "http://erp-emulator:8090"
     erp_timeout_seconds: float = 5.0
@@ -52,6 +54,7 @@ class Settings(BaseSettings):
     demo_technologist_password: SecretStr | None = None
     demo_manager_password: SecretStr | None = None
     demo_admin_password: SecretStr | None = None
+    simulator_reader_password: SecretStr | None = None
 
     @field_validator("source_demo_token", mode="before")
     @classmethod
@@ -61,6 +64,16 @@ class Settings(BaseSettings):
     @field_validator("source_hmac_secrets_json", mode="before")
     @classmethod
     def empty_hmac_map_is_none(cls, value):
+        return None if value in (None, "") else value
+
+    @field_validator(
+        "checkpoint_private_key_pem_b64",
+        "checkpoint_classic_keys_json",
+        "checkpoint_pq_keys_json",
+        mode="before",
+    )
+    @classmethod
+    def empty_checkpoint_key_config_is_none(cls, value):
         return None if value in (None, "") else value
 
     @field_validator("aes_data_key_b64")

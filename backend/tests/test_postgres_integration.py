@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import uuid
 
 import pytest
 from fastapi.testclient import TestClient
@@ -51,7 +52,7 @@ def test_demo_vertical_slice_security_and_outbox() -> None:
     reset = client.post("/api/v1/demo/reset", headers=_headers(tokens["controller"]))
     assert reset.status_code == 200, reset.text
     scenario = client.post(
-        "/api/v1/demo/scenarios/S03_new_defect/run",
+        "/api/v1/demo/scenarios/S03/run",
         headers=_headers(tokens["controller"]),
     )
     assert scenario.status_code == 200, scenario.text
@@ -67,6 +68,16 @@ def test_demo_vertical_slice_security_and_outbox() -> None:
         "LAST_TRUSTED_GOOD",
         "FIRST_TRUSTED_DEFECT",
         "OPERATION_IN_WINDOW",
+    }
+    timeline = client.get(
+        "/api/v1/items/ITEM-S03/timeline", headers=_headers(tokens["controller"])
+    )
+    assert timeline.status_code == 200, timeline.text
+    assert timeline.json()["events"]  # backward-compatible raw timeline remains available
+    assert {row["type"] for row in timeline.json()["activity"]} >= {
+        "item_registered",
+        "inspection_result",
+        "nonconformance_opened",
     }
 
     ncrs = client.get("/api/v1/nonconformances", headers=_headers(tokens["controller"])).json()
@@ -97,9 +108,14 @@ def test_demo_vertical_slice_security_and_outbox() -> None:
     assert decision.json()["outbox_state"] is None
     assert decision.json()["message_id"] is None
 
+    decided_timeline = client.get(
+        "/api/v1/items/ITEM-S03/timeline", headers=_headers(tokens["controller"])
+    ).json()
+    assert "controller_decision" in {row["type"] for row in decided_timeline["activity"]}
+
     with engine.connect() as connection:
         ciphertext = connection.scalar(
-            text("SELECT payload_ciphertext FROM raw_events WHERE event_id='S03-E01'")
+            text("SELECT payload_ciphertext FROM raw_events WHERE event_id='EV-S03-001'")
         )
         assert ciphertext is not None
         assert b"ITEM-S03" not in bytes(ciphertext)
@@ -109,5 +125,378 @@ def test_demo_vertical_slice_security_and_outbox() -> None:
     with pytest.raises(DBAPIError):
         with engine.begin() as connection:
             connection.execute(
-                text("UPDATE raw_events SET event_type='tampered' WHERE event_id='S03-E01'")
+                text("UPDATE raw_events SET event_type='tampered' WHERE event_id='EV-S03-001'")
             )
+
+
+@pytest.mark.parametrize(
+    ("scenario_id", "item_id", "defect_event", "rework_event", "repeat_event"),
+    [
+        ("S08", "ITEM-S08", "EV-S08-005", "EV-S08-006", "EV-S08-008"),
+        ("S16", "ITEM-S16", "EV-S16-005", "EV-S16-006", "EV-S16-008"),
+    ],
+)
+def test_timeline_activity_includes_chronological_rework_decisions(
+    scenario_id: str,
+    item_id: str,
+    defect_event: str,
+    rework_event: str,
+    repeat_event: str,
+) -> None:
+    client = _client()
+    controller = _login(client, "controller", "controller-demo")
+    headers = _headers(controller)
+    reset = client.post("/api/v1/demo/reset", headers=headers)
+    assert reset.status_code == 200, reset.text
+
+    scenario = client.post(f"/api/v1/demo/scenarios/{scenario_id}/run", headers=headers)
+    assert scenario.status_code == 200, scenario.text
+    assert scenario.json()["passed"] is True
+
+    response = client.get(f"/api/v1/items/{item_id}/timeline", headers=headers)
+    assert response.status_code == 200, response.text
+    value = response.json()
+    assert value["events"]
+    activity_types = {row["type"] for row in value["activity"]}
+    assert {
+        "controller_decision",
+        "rework_started",
+        "rework_finished",
+        "rework_verification",
+        "final_disposition",
+    } - ({"final_disposition"} if scenario_id == "S16" else set()) <= activity_types
+
+    activity = value["activity"]
+    defect_at = next(row["occurred_at"] for row in activity if row["event_id"] == defect_event)
+    decision_at = next(
+        row["occurred_at"] for row in activity if row["type"] == "controller_decision"
+    )
+    rework_at = next(row["occurred_at"] for row in activity if row["event_id"] == rework_event)
+    repeat_at = next(row["occurred_at"] for row in activity if row["event_id"] == repeat_event)
+    verification_at = next(
+        row["occurred_at"] for row in activity if row["type"] == "rework_verification"
+    )
+    assert defect_at < decision_at < rework_at < repeat_at < verification_at
+
+
+def test_demo_reset_clears_fixture_source_sequence_watermark() -> None:
+    from backend.app.persistence.database import engine
+    from backend.app.persistence.models import EventSource
+    from backend.app.scenarios.runtime import FIXTURE_SOURCE_IDS
+    from sqlalchemy import select
+
+    client = _client()
+    controller = _login(client, "controller", "controller-demo")
+    admin = _login(client, "admin", "admin-demo")
+    controller_headers = _headers(controller)
+
+    high_sequence = client.post(
+        "/api/v1/demo/scenarios/S25/run", headers=controller_headers
+    )
+    assert high_sequence.status_code == 200, high_sequence.text
+    reset = client.post("/api/v1/demo/reset", headers=controller_headers)
+    assert reset.status_code == 200, reset.text
+    with engine.connect() as connection:
+        watermarks = connection.execute(
+            select(EventSource.source_id, EventSource.last_source_sequence).where(
+                EventSource.source_id.in_(FIXTURE_SOURCE_IDS)
+            )
+        ).all()
+    assert watermarks
+    assert all(value is None for _, value in watermarks)
+    low_sequence = client.post(
+        "/api/v1/demo/scenarios/S01/run", headers=controller_headers
+    )
+    assert low_sequence.status_code == 200, low_sequence.text
+    assert low_sequence.json()["passed"] is True
+
+    alerts = client.get(
+        "/api/v1/admin/security-alerts", headers=_headers(admin)
+    )
+    assert alerts.status_code == 200, alerts.text
+    assert all(
+        row["alert_type"] != "SOURCE_SEQUENCE_ANOMALY" for row in alerts.json()
+    )
+
+
+def test_timeline_activity_exposes_effective_coverage_per_defect_key() -> None:
+    client = _client()
+    controller = _login(client, "controller", "controller-demo")
+    headers = _headers(controller)
+    reset = client.post("/api/v1/demo/reset", headers=headers)
+    assert reset.status_code == 200, reset.text
+
+    scenario = client.post("/api/v1/demo/scenarios/S12/run", headers=headers)
+    assert scenario.status_code == 200, scenario.text
+    assert scenario.json()["passed"] is True
+
+    response = client.get("/api/v1/items/ITEM-S12/timeline", headers=headers)
+    assert response.status_code == 200, response.text
+    first_inspection = next(
+        row for row in response.json()["activity"] if row["event_id"] == "EV-S12-002"
+    )
+    coverage = {
+        row["defect_type"]: row["coverage"]
+        for row in first_inspection["details"]["coverage"]
+    }
+    assert coverage == {
+        "scratch_or_gouge": "FULL",
+        "surface_crack": "PARTIAL",
+    }
+
+
+
+def test_blast_radius_requires_human_approval_before_application() -> None:
+    from backend.app.persistence.database import engine
+
+    client = _client()
+    controller = _login(client, "controller", "controller-demo")
+    response = client.post(
+        "/api/v1/demo/scenarios/S18/run",
+        headers=_headers(controller),
+    )
+    assert response.status_code == 200, response.text
+    scenario_result = response.json()
+    assert scenario_result["passed"] is True
+    assert scenario_result["actual"]["automatic_defect_assignment"] is False
+    assert scenario_result["actual"]["automatic_containment_application"] is False
+
+    approvals = client.get(
+        "/api/v1/risk/approvals",
+        headers=_headers(controller),
+    )
+    assert approvals.status_code == 200, approvals.text
+    rows = approvals.json()
+    assert len(rows) == 1
+    assert rows[0]["status"] == "PENDING"
+
+    with engine.connect() as connection:
+        assert connection.scalar(text("SELECT count(*) FROM containment_applications")) == 0
+
+    approved = client.post(
+        f"/api/v1/risk/approvals/{rows[0]['id']}/approve",
+        headers=_headers(controller),
+        json={"reason": "Reviewed affected population and approved containment"},
+    )
+    assert approved.status_code == 200, approved.text
+    assert approved.json()["status"] == "APPROVED"
+    assert set(approved.json()["applied_items"]) == {
+        "ITEM-S18-A",
+        "ITEM-S18-B",
+        "ITEM-S18-C",
+    }
+
+    with engine.connect() as connection:
+        assert connection.scalar(text("SELECT count(*) FROM containment_applications")) == 3
+
+
+def test_route_import_activation_supersedes_previous_revision() -> None:
+    client = _client()
+    technologist = _login(client, "technologist", "technologist-demo")
+    headers = _headers(technologist)
+    route_code = f"AUDIT-ROUTE-IMPORT-{uuid.uuid4().hex[:12]}"
+
+    first = client.post(
+        "/api/v1/routes/import",
+        headers=headers,
+        json={
+            "code": route_code,
+            "name": "Audit route import",
+            "activate": True,
+            "steps": [
+                {
+                    "operation_id": "AUDIT-OP-1",
+                    "operation_name": "Audit operation 1",
+                    "station_id": "ST-01",
+                }
+            ],
+        },
+    )
+    assert first.status_code == 200, first.text
+
+    second = client.post(
+        "/api/v1/routes/import",
+        headers=headers,
+        json={
+            "code": route_code,
+            "name": "Audit route import",
+            "activate": True,
+            "steps": [
+                {
+                    "operation_id": "AUDIT-OP-2",
+                    "operation_name": "Audit operation 2",
+                    "station_id": "ST-02",
+                }
+            ],
+        },
+    )
+    assert second.status_code == 200, second.text
+
+    route_id = first.json()["route_id"]
+    details = client.get(f"/api/v1/routes/{route_id}", headers=headers)
+    assert details.status_code == 200, details.text
+    statuses = [
+        (row["revision"], row["status"])
+        for row in details.json()["revisions"]
+    ]
+    assert statuses == [(1, "superseded"), (2, "active")]
+
+
+def test_real_outbox_worker_retries_then_delivers_same_message(monkeypatch) -> None:
+    import httpx
+
+    from backend.app.persistence.database import SessionLocal
+    from backend.app.persistence.models import IntegrationHealth, OutboxMessage
+    from backend.app.security.crypto import utcnow
+    from worker import main as worker_main
+
+    client = _client()
+    controller = _login(client, "controller", "controller-demo")
+    response = client.post(
+        "/api/v1/demo/scenarios/S22/run",
+        headers=_headers(controller),
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["passed"] is True
+
+    db = SessionLocal()
+    try:
+        message = db.query(OutboxMessage).one()
+        original_message_id = message.message_id
+    finally:
+        db.close()
+
+    def fail_once(self, payload):
+        raise httpx.ConnectError("simulated ERP outage")
+
+    monkeypatch.setattr(worker_main.EmulatorAdapter, "send_quality_result", fail_once)
+    assert worker_main.process_one() is True
+
+    db = SessionLocal()
+    try:
+        message = db.query(OutboxMessage).one()
+        assert message.message_id == original_message_id
+        assert message.state == "RETRYING"
+        assert message.attempts == 1
+        health = db.get(IntegrationHealth, "erp-emulator")
+        assert health is not None
+        assert health.status == "UNHEALTHY"
+        message.next_attempt_at = utcnow()
+        db.commit()
+    finally:
+        db.close()
+
+    def ack(self, payload):
+        return {"message_id": payload["message_id"], "status": "ACK"}
+
+    monkeypatch.setattr(worker_main.EmulatorAdapter, "send_quality_result", ack)
+    assert worker_main.process_one() is True
+
+    db = SessionLocal()
+    try:
+        message = db.query(OutboxMessage).one()
+        assert message.message_id == original_message_id
+        assert message.state == "DELIVERED"
+        assert message.attempts == 2
+        health = db.get(IntegrationHealth, "erp-emulator")
+        assert health is not None
+        assert health.status == "HEALTHY"
+    finally:
+        db.close()
+
+
+def test_route_coverage_analysis_is_read_only_and_revision_specific() -> None:
+    from backend.app.persistence.database import engine
+
+    client = _client()
+    technologist = _login(client, "technologist", "technologist-demo")
+    headers = _headers(technologist)
+    route_code = "COVERAGE-ANALYSIS-ROUTE"
+
+    first = client.post(
+        "/api/v1/routes/import",
+        headers=headers,
+        json={
+            "code": route_code,
+            "name": "Coverage analysis route",
+            "activate": True,
+            "steps": [
+                {
+                    "operation_id": "COVERAGE-OP-1",
+                    "operation_name": "Coverage operation 1",
+                    "control_point_id": "CP-COVERAGE-1",
+                    "required": True,
+                    "inspection_scope": {
+                        "coverage": {"*": {"surface_crack": "FULL"}},
+                        "default_coverage": "NONE",
+                    },
+                }
+            ],
+        },
+    )
+    assert first.status_code == 200, first.text
+    route_id = first.json()["route_id"]
+    revision_one = first.json()["revision_id"]
+    second = client.post(
+        f"/api/v1/routes/{route_id}/revisions",
+        headers=headers,
+        json={
+            "steps": [
+                {
+                    "operation_id": "COVERAGE-OP-2",
+                    "operation_name": "Coverage operation 2",
+                    "control_point_id": "CP-COVERAGE-2",
+                    "required": True,
+                    "inspection_scope": {
+                        "coverage": {"*": {"surface_crack": "PARTIAL"}},
+                        "default_coverage": "NONE",
+                    },
+                }
+            ]
+        },
+    )
+    assert second.status_code == 200, second.text
+    revision_two = second.json()["revision_id"]
+
+    with engine.connect() as connection:
+        before = tuple(
+            connection.scalar(text(f"SELECT count(*) FROM {table}"))
+            for table in (
+                "route_definitions",
+                "route_revisions",
+                "route_steps",
+                "audit_entries",
+            )
+        )
+
+    active = client.get(
+        f"/api/v1/routes/{route_id}/coverage-analysis", headers=headers
+    )
+    old_revision = client.get(
+        f"/api/v1/routes/{route_id}/coverage-analysis",
+        headers=headers,
+        params={"revision_id": revision_one},
+    )
+    draft_revision = client.get(
+        f"/api/v1/routes/{route_id}/coverage-analysis",
+        headers=headers,
+        params={"revision_id": revision_two},
+    )
+
+    assert active.status_code == 200, active.text
+    assert old_revision.status_code == 200, old_revision.text
+    assert draft_revision.status_code == 200, draft_revision.text
+    assert active.json()["revision_id"] == revision_one
+    assert old_revision.json()["rows"][0]["status"] == "FULL_AVAILABLE"
+    assert draft_revision.json()["rows"][0]["status"] == "PARTIAL_ONLY"
+    with engine.connect() as connection:
+        after = tuple(
+            connection.scalar(text(f"SELECT count(*) FROM {table}"))
+            for table in (
+                "route_definitions",
+                "route_revisions",
+                "route_steps",
+                "audit_entries",
+            )
+        )
+    assert after == before

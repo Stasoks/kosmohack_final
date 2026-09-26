@@ -6,6 +6,9 @@
     "payload": {
       "nonconformance_id": "NC-S25B",
       "disposition": "REWORK_REQUIRED"
+    },
+    "target": {
+      "item_id": "ITEM-S25-B"
     }
   },
   {
@@ -15,6 +18,9 @@
     "payload": {
       "nonconformance_id": "NC-S25C",
       "disposition": "REWORK_REQUIRED"
+    },
+    "target": {
+      "item_id": "ITEM-S25-C"
     }
   },
   {
@@ -24,6 +30,9 @@
     "payload": {
       "nonconformance_id": "NC-S25D",
       "disposition": "REWORK_REQUIRED"
+    },
+    "target": {
+      "item_id": "ITEM-S25-D"
     }
   },
   {

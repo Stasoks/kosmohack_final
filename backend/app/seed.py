@@ -52,19 +52,23 @@ def seed() -> None:
             permissions[name], _ = _get_or_create(db, Permission, name=name)
         roles: dict[str, Role] = {}
         for role_name in ROLE_PERMISSIONS:
-            roles[role_name], _ = _get_or_create(
+            roles[role_name], role_created = _get_or_create(
                 db,
                 Role,
                 defaults={"description": f"TRACE-Q base role: {role_name}"},
                 name=role_name,
             )
-            for permission_name in ROLE_PERMISSIONS[role_name]:
-                _get_or_create(
-                    db,
-                    RolePermission,
-                    role_id=roles[role_name].id,
-                    permission_id=permissions[permission_name].id,
-                )
+            # Defaults are bootstrap data, not runtime policy. Once a role exists,
+            # its RolePermission rows belong to the administrator and seed must not
+            # silently restore a permission that was deliberately removed.
+            if role_created:
+                for permission_name in ROLE_PERMISSIONS[role_name]:
+                    _get_or_create(
+                        db,
+                        RolePermission,
+                        role_id=roles[role_name].id,
+                        permission_id=permissions[permission_name].id,
+                    )
 
         if settings.demo_mode:
             password_fields = {
@@ -73,6 +77,7 @@ def seed() -> None:
                 "technologist": settings.demo_technologist_password,
                 "manager": settings.demo_manager_password,
                 "admin": settings.demo_admin_password,
+                "factory-simulator": settings.simulator_reader_password,
             }
             missing = [name for name, value in password_fields.items() if not value]
             if missing:
@@ -83,8 +88,12 @@ def seed() -> None:
                 "technologist": "Технолог",
                 "manager": "Руководитель производства",
                 "admin": "Администратор",
+                "factory-simulator": "Симулятор производства (только чтение)",
             }
             for username, password in password_fields.items():
+                role_name = (
+                    "simulator_reader" if username == "factory-simulator" else username
+                )
                 user = db.scalar(select(User).where(User.username == username))
                 if user is None:
                     user = User(
@@ -92,11 +101,11 @@ def seed() -> None:
                         display_name=display_names[username],
                         password_hash=hash_password(password.get_secret_value()),  # type: ignore[union-attr]
                         enabled=True,
-                        roles=[roles[username]],
+                        roles=[roles[role_name]],
                     )
                     db.add(user)
-                elif roles[username] not in user.roles:
-                    user.roles = [roles[username]]
+                elif roles[role_name] not in user.roles:
+                    user.roles = [roles[role_name]]
 
         for line_id, name in (("LINE-A", "Участок механической обработки"), ("LINE-B", "Участок сборки")):
             _get_or_create(db, Line, defaults={"name": name}, id=line_id)
@@ -158,17 +167,18 @@ def seed() -> None:
             db.add(revision)
             db.flush()
             steps = (
-                (1, "OP-INCOMING", "Входной контроль", "CP-IN", True),
-                (2, "OP-TURN", "Механическая обработка", "CP-AFTER-TURN", True),
-                (3, "OP-ASSEMBLY", "Сборка", "CP-FINAL", True),
+                (1, "OP-INCOMING", "Входной контроль", "ST-10", "CP-IN", True),
+                (2, "OP-TURN", "Механическая обработка", "ST-20", "CP-AFTER-TURN", True),
+                (3, "OP-ASSEMBLY", "Сборка", "ST-30", "CP-FINAL", True),
             )
-            for position, operation_id, name, control_point, required in steps:
+            for position, operation_id, name, station_id, control_point, required in steps:
                 db.add(
                     RouteStep(
                         route_revision_id=revision.id,
                         position=position,
                         operation_id=operation_id,
                         operation_name=name,
+                        station_id=station_id,
                         control_point_id=control_point,
                         required_inspection=required,
                         inspection_scope={"defect_types": ["*"], "component_instance_ids": ["*"]},
@@ -224,14 +234,21 @@ def seed() -> None:
             token = settings.source_demo_token.get_secret_value()
             sources = {
                 "MES-01": ("mes", ["item.registered", "operation.started", "operation.finished"]),
+                "VISION-01": ("vision_qc", ["inspection.result"]),
                 "VISION-02": ("vision_qc", ["inspection.result"]),
+                "EQUIP-GW-01": ("equipment_gateway", ["machine.state"]),
                 "MACHINE-01": ("machine_logs", ["machine.state"]),
+                "OPTERM-01": ("operator_terminal", ["operator.action"]),
                 "OPERATOR-01": ("operator_vision", ["operator.action"]),
+                "CAL-01": ("calibration_system", ["control_device.invalidated"]),
                 "CALIBRATION-01": ("calibration_system", ["control_device.invalidated"]),
             }
             for number in range(1, 11):
                 sources[f"LOAD-MES-{number:02d}"] = ("mes", ["item.registered"])
             for source_id, (source_type, allowed) in sources.items():
+                auth_method = "HMAC_V1" if source_id == "CALIBRATION-01" else "shared_secret_legacy"
+                hmac_key_id = source_id if auth_method == "HMAC_V1" else None
+                legacy_token_hash = None if auth_method == "HMAC_V1" else token_hash(token)
                 source = db.get(EventSource, source_id)
                 if source is None:
                     db.add(
@@ -240,16 +257,21 @@ def seed() -> None:
                             source_type=source_type,
                             enabled=True,
                             status="ACTIVE",
-                            auth_method="HMAC_V1" if source_id == "CALIBRATION-01" else "shared_secret_legacy",
-                            token_hash=token_hash(token),
+                            auth_method=auth_method,
+                            token_hash=legacy_token_hash,
+                            key_id=hmac_key_id,
+                            secret_env_name="SOURCE_HMAC_SECRETS_JSON" if hmac_key_id else None,
                             allowed_event_types=allowed,
                         )
                     )
                 else:
                     source.enabled = True
                     source.status = "ACTIVE"
+                    source.auth_method = auth_method
                     source.allowed_event_types = allowed
-                    source.token_hash = token_hash(token)
+                    source.token_hash = legacy_token_hash
+                    source.key_id = hmac_key_id
+                    source.secret_env_name = "SOURCE_HMAC_SECRETS_JSON" if hmac_key_id else None
         _get_or_create(
             db,
             IntegrationHealth,
@@ -261,6 +283,19 @@ def seed() -> None:
             db.add(CryptoProfile(profile_id="CLASSIC_V1", status="ACTIVE",
                                  algorithms={"encryption": "AES-256-GCM", "integrity": "HMAC-SHA256", "checkpoint": "ECDSA-P256"},
                                  activated_at=utcnow()))
+        hybrid = db.get(CryptoProfile, "HYBRID_PQ_V1")
+        if hybrid is None:
+            db.add(
+                CryptoProfile(
+                    profile_id="HYBRID_PQ_V1",
+                    status="INACTIVE",
+                    algorithms={
+                        "encryption": "AES-256-GCM",
+                        "integrity": "HMAC-SHA256",
+                        "checkpoint": "ECDSA-P256+ML-DSA-65",
+                    },
+                )
+            )
         db.commit()
     finally:
         db.close()

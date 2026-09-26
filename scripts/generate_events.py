@@ -34,7 +34,6 @@ def event_stream(sources: int, items: int, duplicate_rate: float, late_rate: flo
             },
             "item_id": item_id,
             "payload": {
-                "item_id": item_id,
                 "product_definition_id": "PD-TRACE-01",
                 "revision": "A",
                 "line_id": "LINE-A" if item_number % 2 else "LINE-B",

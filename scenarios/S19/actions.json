@@ -9,7 +9,8 @@
     },
     "payload": {
       "nonconformance_id": "NC-S19",
-      "disposition": "REWORK_REQUIRED"
+      "disposition": "USE_AS_IS",
+      "reason": "Контролёр подтвердил несоответствие и финальную disposition для проверки ERP outbox"
     }
   }
 ]

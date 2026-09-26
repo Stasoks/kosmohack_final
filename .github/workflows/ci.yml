@@ -15,9 +15,14 @@ jobs:
       - run: python -m pip install --upgrade pip
       - run: python -m pip install . pytest==8.4.2 jsonschema==4.25.1
       - run: python scripts/generate_contracts.py --check
+      - run: >-
+          python scripts/generate_contracts.py --check
+          --schema contracts/events/evolution/canonical-event-1.1-demo.schema.json
+          --output-dir contracts/events/evolution/generated
+      - run: python scripts/check_contract_evolution.py
       - run: python scripts/check_contract_fixtures.py
       - run: pytest -m "not postgres"
-      - run: python -m compileall -q backend erp_emulator worker streamlit_app scripts shared_contracts
+      - run: python -m compileall -q backend erp_emulator factory_simulator worker streamlit_app scripts shared_contracts
 
   postgres-integration:
     runs-on: ubuntu-latest
@@ -34,15 +39,132 @@ jobs:
           --health-interval 3s --health-timeout 3s --health-retries 20
     env:
       ENVIRONMENT: test
-      TRACEQ_TEST_DATABASE_URL: postgresql+psycopg://traceq_test:traceq_test@localhost:5432/traceq_test
-      DATABASE_URL: postgresql+psycopg://traceq_test:traceq_test@localhost:5432/traceq_test
+      DEMO_MODE: "true"
+      RUN_POSTGRES_TESTS: "1"
+      TRACEQ_TEST_DATABASE_URL: postgresql+psycopg://traceq_app:traceq_app@localhost:5432/traceq_test
+      DATABASE_URL: postgresql+psycopg://traceq_app:traceq_app@localhost:5432/traceq_test
+      MIGRATION_DATABASE_URL: postgresql+psycopg://traceq_test:traceq_test@localhost:5432/traceq_test
       JWT_SIGNING_SECRET: test-jwt-secret-at-least-32-bytes-long
-      AES_DATA_KEY_B64: MDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDA=
+      AES_DATA_KEY_B64: MDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDA=
       INTEGRITY_HMAC_KEY_B64: MTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTE=
+      DEMO_PRIVILEGED_DATABASE_URL: postgresql+psycopg://traceq_test:traceq_test@localhost:5432/traceq_test
+      SOURCE_DEMO_TOKEN: demo-source-token-change-me
+      DEMO_CONTROLLER_PASSWORD: controller-demo
+      DEMO_MASTER_PASSWORD: master-demo
+      DEMO_TECHNOLOGIST_PASSWORD: technologist-demo
+      DEMO_MANAGER_PASSWORD: manager-demo
+      DEMO_ADMIN_PASSWORD: admin-demo
+      SIMULATOR_READER_PASSWORD: simulator-reader-demo
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with: {python-version: "3.12"}
-      - run: python -m pip install . pytest==8.4.2 jsonschema==4.25.1 datamodel-code-generator==0.33.0
+      - run: python -m pip install . pytest==8.4.2 jsonschema==4.25.1
+      - name: Create runtime database role
+        env:
+          PGPASSWORD: traceq_test
+        run: |
+          if ! psql -h localhost -U traceq_test -d traceq_test -tAc "SELECT 1 FROM pg_roles WHERE rolname='traceq_app'" | grep -q 1; then
+            psql -h localhost -U traceq_test -d traceq_test -v ON_ERROR_STOP=1 -c "CREATE ROLE traceq_app LOGIN PASSWORD 'traceq_app'"
+          fi
+          psql -h localhost -U traceq_test -d traceq_test -v ON_ERROR_STOP=1 -c "GRANT CONNECT ON DATABASE traceq_test TO traceq_app"
       - run: alembic upgrade head
+      - run: python -m backend.app.seed
       - run: pytest -m postgres backend/tests
+
+  scaling-smoke-proof:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    services:
+      postgres:
+        image: postgres:16.10-alpine
+        env:
+          POSTGRES_DB: traceq_scale
+          POSTGRES_USER: traceq_scale
+          POSTGRES_PASSWORD: traceq_scale
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U traceq_scale -d traceq_scale"
+          --health-interval 3s --health-timeout 3s --health-retries 20
+    env:
+      ENVIRONMENT: test
+      DEMO_MODE: "true"
+      DATABASE_URL: postgresql+psycopg://traceq_app:traceq_app@localhost:5432/traceq_scale
+      MIGRATION_DATABASE_URL: postgresql+psycopg://traceq_scale:traceq_scale@localhost:5432/traceq_scale
+      DEMO_PRIVILEGED_DATABASE_URL: postgresql+psycopg://traceq_scale:traceq_scale@localhost:5432/traceq_scale
+      JWT_SIGNING_SECRET: test-jwt-secret-at-least-32-bytes-long
+      AES_DATA_KEY_B64: MDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDA=
+      INTEGRITY_HMAC_KEY_B64: MTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTE=
+      SOURCE_DEMO_TOKEN: demo-source-token-change-me
+      DEMO_CONTROLLER_PASSWORD: controller-demo
+      DEMO_MASTER_PASSWORD: master-demo
+      DEMO_TECHNOLOGIST_PASSWORD: technologist-demo
+      DEMO_MANAGER_PASSWORD: manager-demo
+      DEMO_ADMIN_PASSWORD: admin-demo
+      SIMULATOR_READER_PASSWORD: simulator-reader-demo
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.12"}
+      - run: python -m pip install .
+      - name: Create runtime database role
+        env:
+          PGPASSWORD: traceq_scale
+        run: |
+          psql -h localhost -U traceq_scale -d traceq_scale -v ON_ERROR_STOP=1 -c "CREATE ROLE traceq_app LOGIN PASSWORD 'traceq_app'"
+          psql -h localhost -U traceq_scale -d traceq_scale -v ON_ERROR_STOP=1 -c "GRANT CONNECT ON DATABASE traceq_scale TO traceq_app"
+      - run: alembic upgrade head
+      - run: python -m backend.app.seed
+      - name: Prove deterministic projections, KPI, outbox and recovery
+        run: >-
+          python scripts/scaling_proof.py
+          --profile configs/scaling/smoke.json
+          --concurrency 1,2
+          --outbox-workers 1,2
+          --recovery
+          --output-dir tmp/scaling-proof
+      - name: Upload scaling proof
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: scaling-smoke-proof
+          path: tmp/scaling-proof/
+          if-no-files-found: warn
+          retention-days: 7
+
+  pq-proof:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.12"}
+      - name: Cache native liboqs runtime
+        uses: actions/cache@v4
+        with:
+          path: ~/_oqs
+          key: liboqs-0.16.0-${{ runner.os }}-${{ runner.arch }}
+      - run: python -m pip install --upgrade pip
+      - run: python -m pip install ".[pq]" pytest==8.4.2
+      - name: Real ML-DSA-65 sign, verify and tamper proof
+        run: python scripts/pq_smoke.py
+      - name: Hybrid checkpoint unit, tamper, rotation and no-fallback proof
+        run: pytest backend/tests/test_checkpoint_security.py -q
+
+
+  docker-demo-smoke:
+    if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    steps:
+      - uses: actions/checkout@v4
+      - run: cp .env.example .env
+      - name: Validate Compose model
+        run: docker compose -f compose.yaml -f compose.demo.yaml config -q
+      - name: Start complete demo stack
+        run: docker compose -f compose.yaml -f compose.demo.yaml up -d --build --wait
+      - name: Probe demo services
+        run: bash scripts/local_smoke.sh
+      - name: Stop demo stack
+        if: always()
+        run: docker compose -f compose.yaml -f compose.demo.yaml down -v --remove-orphans

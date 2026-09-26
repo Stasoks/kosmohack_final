@@ -27,7 +27,44 @@ PERMISSIONS = (
     "RUN_BLAST_RADIUS",
 )
 
+
+PERMISSION_CATALOG: dict[str, dict[str, str]] = {
+    "VIEW_PRODUCT": {"label": "Просмотр изделий", "description": "Просматривать карточки изделий."},
+    "VIEW_TIMELINE": {"label": "Просмотр истории", "description": "Просматривать хронологию изделия."},
+    "VIEW_RAW_EVENT": {"label": "Просмотр исходных событий", "description": "Просматривать технические данные исходных событий."},
+    "VIEW_NONCONFORMANCE": {"label": "Просмотр несоответствий", "description": "Просматривать карточки несоответствий."},
+    "REVIEW_NONCONFORMANCE": {"label": "Рассмотрение несоответствий", "description": "Проводить рассмотрение несоответствий."},
+    "ISSUE_QC_DECISION": {"label": "Решение контролёра", "description": "Фиксировать итоговое решение по качеству."},
+    "REQUEST_EXTRA_INSPECTION": {"label": "Дополнительный контроль", "description": "Запрашивать дополнительную проверку изделия."},
+    "VIEW_LINE": {"label": "Просмотр производства", "description": "Просматривать состояние производственной линии."},
+    "VIEW_ANALYTICS": {"label": "Просмотр аналитики", "description": "Просматривать показатели качества."},
+    "CREATE_INVESTIGATION_NOTE": {"label": "Заметки расследования", "description": "Добавлять заметки к расследованию."},
+    "MANAGE_ROUTES": {"label": "Управление маршрутами", "description": "Создавать и активировать версии маршрутов."},
+    "PROPOSE_CONTAINMENT": {"label": "Предлагать локализацию", "description": "Создавать предложения по локализации риска."},
+    "APPROVE_CONTAINMENT": {"label": "Утверждать локализацию", "description": "Утверждать применение мер локализации."},
+    "MANAGE_USERS": {"label": "Управление доступом", "description": "Управлять пользователями, ролями и правами."},
+    "MANAGE_INTEGRATIONS": {"label": "Управление интеграциями", "description": "Настраивать источники и интеграции."},
+    "VIEW_AUDIT": {"label": "Просмотр аудита", "description": "Просматривать журнал административных действий."},
+    "VERIFY_INTEGRITY": {"label": "Проверка целостности", "description": "Запускать проверку журналов и подписей."},
+    "REPLAY_REBUILD": {"label": "Пересборка проекций", "description": "Пересобирать проекции из исходной истории."},
+    "RUN_DEMO_SCENARIOS": {"label": "Демонстрационные сценарии", "description": "Запускать приёмочные сценарии."},
+    "INVALIDATE_CONTROL_DEVICE": {"label": "Инвалидация средства контроля", "description": "Отмечать недостоверность средства контроля."},
+    "MANAGE_TRUST_POLICY": {"label": "Политики доверия", "description": "Настраивать правила доверия к наблюдениям."},
+    "ROTATE_KEYS": {"label": "Ротация ключей", "description": "Выполнять операции с ключами контрольных подписей."},
+    "CHANGE_CRYPTO_PROFILE": {"label": "Криптографический профиль", "description": "Изменять активный криптографический профиль."},
+    "EXPORT_EVIDENCE": {"label": "Экспорт доказательств", "description": "Экспортировать материалы проверки."},
+    "APPROVE_CRITICAL_ACTION": {"label": "Критические действия", "description": "Подтверждать критические административные действия."},
+    "RUN_BLAST_RADIUS": {"label": "Анализ зоны влияния", "description": "Выполнять анализ затронутых изделий."},
+}
+
+SYSTEM_LOCKED_ROLES = frozenset({"simulator_reader"})
+
 ROLE_PERMISSIONS: dict[str, set[str]] = {
+    "simulator_reader": {
+        "VIEW_PRODUCT",
+        "VIEW_TIMELINE",
+        "VIEW_NONCONFORMANCE",
+    },
     "controller": {
         "VIEW_PRODUCT",
         "VIEW_TIMELINE",
