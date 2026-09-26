@@ -44,6 +44,36 @@ from backend.app.settings import Settings
 OBSERVATION_NAMESPACE = uuid.UUID("b8d12dc1-9b4e-4e16-a463-1323ea45b88c")
 
 
+def _occurrence_key(
+    defect_type: str, component_instance_id: str | None
+) -> tuple[str, str | None]:
+    return defect_type, component_instance_id
+
+
+def _occurrence_for_observation(
+    occurrences: list[DefectOccurrence],
+    observation_id: uuid.UUID,
+    occurred_at: datetime,
+) -> DefectOccurrence | None:
+    """Resolve a replayed observation to its stable physical-defect episode."""
+    for occurrence in occurrences:
+        if occurrence.first_observation_id == observation_id:
+            return occurrence
+    for occurrence in occurrences:
+        if occurrence.current_observation_id == observation_id:
+            return occurrence
+
+    inside_episode = [
+        occurrence
+        for occurrence in occurrences
+        if occurrence.opened_at <= occurred_at
+        and (occurrence.closed_at is None or occurred_at <= occurrence.closed_at)
+    ]
+    if not inside_episode:
+        return None
+    return max(inside_episode, key=lambda value: (value.opened_at, str(value.id)))
+
+
 def _route_revision_number(value: Any) -> int | None:
     if value is None:
         return None
@@ -534,6 +564,18 @@ def rebuild_item(db: Session, item_id: str, settings: Settings) -> None:
 
     operations_list = list(operation_values.values())
     limitations = _missing_check_limitations(db, item, operations_list, observation_values)
+    occurrences_by_key: dict[tuple[str, str | None], list[DefectOccurrence]] = {}
+    for existing_occurrence in db.scalars(
+        select(DefectOccurrence)
+        .where(DefectOccurrence.item_id == item_id)
+        .order_by(DefectOccurrence.opened_at, DefectOccurrence.id)
+    ).all():
+        key = _occurrence_key(
+            existing_occurrence.defect_type,
+            existing_occurrence.component_instance_id,
+        )
+        occurrences_by_key.setdefault(key, []).append(existing_occurrence)
+
     for obs in observation_values:
         if obs["inspection_result"] != "defect_detected":
             continue
@@ -544,29 +586,28 @@ def rebuild_item(db: Session, item_id: str, settings: Settings) -> None:
                 == "NONE"
             ):
                 continue
-            occurrence = db.scalar(
-                select(DefectOccurrence).where(
-                    DefectOccurrence.item_id == item_id,
-                    DefectOccurrence.defect_type == defect["defect_type"],
-                    DefectOccurrence.component_instance_id.is_(None)
-                    if component is None
-                    else DefectOccurrence.component_instance_id == component,
-                    DefectOccurrence.status == "OPEN",
-                )
+            occurrence_key = _occurrence_key(defect["defect_type"], component)
+            occurrence_candidates = occurrences_by_key.setdefault(occurrence_key, [])
+            observation_id = observation_ids[obs["event_id"]]
+            occurrence = _occurrence_for_observation(
+                occurrence_candidates,
+                observation_id,
+                obs["occurred_at"],
             )
             if occurrence is None:
                 occurrence = DefectOccurrence(
                     item_id=item_id,
                     defect_type=defect["defect_type"],
                     component_instance_id=component,
-                    first_observation_id=observation_ids[obs["event_id"]],
-                    current_observation_id=observation_ids[obs["event_id"]],
+                    first_observation_id=observation_id,
+                    current_observation_id=observation_id,
                     opened_at=obs["occurred_at"],
                 )
                 db.add(occurrence)
                 db.flush()
+                occurrence_candidates.append(occurrence)
             else:
-                occurrence.current_observation_id = observation_ids[obs["event_id"]]
+                occurrence.current_observation_id = observation_id
             ncr = db.scalar(select(Nonconformance).where(Nonconformance.occurrence_id == occurrence.id))
             if ncr is None:
                 ncr = Nonconformance(
