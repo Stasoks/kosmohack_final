@@ -12,7 +12,8 @@ from backend.app.errors import NotFoundError, TraceQError
 from backend.app.persistence.database import get_db
 from backend.app.persistence.models import (
     ApprovalRequest, BlastRadiusExposure, BlastRadiusQuery, ContainmentApplication,
-    ContainmentProposal, ControlDeviceInvalidation, Observation, OperationRun,
+    ContainmentProposal, ControlDeviceInvalidation, MachineEvent, Observation,
+    OperationRun,
 )
 from backend.app.projections.rebuild import rebuild_item
 from backend.app.security.audit import write_audit
@@ -59,6 +60,65 @@ def _matches(run: OperationRun, body: BlastRadiusRequest) -> bool:
     params = run.parameters or {}
     key = {"tool": "tool_id", "material_lot": "material_lot_id", "component": "component_instance_id"}.get(body.factor_type)
     return bool(key and params.get(key) == body.factor_value)
+
+
+@router.get("/equipment-issues")
+def equipment_issues(
+    _: Principal = Depends(require_permission("RUN_BLAST_RADIUS")),
+    db: Session = Depends(get_db),
+):
+    rows = db.scalars(
+        select(MachineEvent)
+        .where(
+            func.lower(MachineEvent.state).in_(("warning", "error", "fault", "alarm"))
+        )
+        .order_by(MachineEvent.occurred_at.desc())
+        .limit(50)
+    ).all()
+    result = []
+    seen: set[tuple[str, str | None]] = set()
+    for row in rows:
+        key = (row.equipment_id, row.code)
+        if key in seen:
+            continue
+        seen.add(key)
+        result.append({
+            "event_id": row.event_id,
+            "equipment_id": row.equipment_id,
+            "state": row.state,
+            "code": row.code,
+            "occurred_at": row.occurred_at,
+            "item_id": row.item_id,
+            "operation_run_id": row.operation_run_id,
+        })
+    return result
+
+
+@router.get("/control-devices")
+def control_devices(
+    _: Principal = Depends(require_permission("INVALIDATE_CONTROL_DEVICE")),
+    db: Session = Depends(get_db),
+):
+    rows = db.execute(
+        select(
+            Observation.control_device_id,
+            func.min(Observation.occurred_at),
+            func.max(Observation.occurred_at),
+            func.count(Observation.id),
+        )
+        .where(Observation.control_device_id.is_not(None))
+        .group_by(Observation.control_device_id)
+        .order_by(Observation.control_device_id)
+    ).all()
+    return [
+        {
+            "device_id": device_id,
+            "first_observed_at": first_observed_at,
+            "last_observed_at": last_observed_at,
+            "observation_count": observation_count,
+        }
+        for device_id, first_observed_at, last_observed_at, observation_count in rows
+    ]
 
 
 @router.post("/blast-radius")

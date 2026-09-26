@@ -38,6 +38,7 @@ class RouteStepSnapshot(BaseModel):
 class RouteSnapshot(BaseModel):
     route_id: UUID
     route_code: str
+    route_name: str | None = None
     revision_id: UUID
     revision: int
     steps: list[RouteStepSnapshot]

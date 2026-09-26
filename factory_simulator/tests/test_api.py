@@ -1,8 +1,10 @@
+import asyncio
 from uuid import uuid4
 
 from fastapi.testclient import TestClient
 
 from factory_simulator.main import create_app
+from factory_simulator.client import TraceQClient
 from factory_simulator.models import RouteSnapshot, RouteStepSnapshot
 from factory_simulator.service import SessionManager
 
@@ -51,6 +53,42 @@ class FakeTraceQClient:
 
     async def item_state(self, item_id: str):
         return {"item_id": item_id, "status": "IN_PROCESS"}
+
+
+def test_live_route_catalog_excludes_acceptance_fixture_route() -> None:
+    simulator_client = TraceQClient("http://traceq", "token", "reader", "password")
+
+    class Response:
+        @staticmethod
+        def json():
+            revision = {
+                "id": str(uuid4()),
+                "revision": 1,
+                "steps": [{"operation_id": "OP-1"}],
+            }
+            return [
+                {
+                    "code": "ROUTE-A",
+                    "name": "Fixture route",
+                    "active_revision_id": revision["id"],
+                    "revisions": [revision],
+                },
+                {
+                    "code": "ROUTE-DEFAULT",
+                    "name": "Основной маршрут корпуса",
+                    "active_revision_id": revision["id"],
+                    "revisions": [revision],
+                },
+            ]
+
+    async def fake_request(*_args, **_kwargs):
+        return Response()
+
+    simulator_client._request = fake_request  # type: ignore[method-assign]
+
+    routes = asyncio.run(simulator_client.available_routes())
+
+    assert [row["code"] for row in routes] == ["ROUTE-DEFAULT"]
 
 
 def test_session_api_lifecycle_and_route_snapshot() -> None:
@@ -132,3 +170,18 @@ def test_defect_mode_waits_without_controller_decision() -> None:
         assert waiting["status"] == "waiting_for_controller"
         assert waiting["event_counter"] == before
         assert not any("-RW-" in (row.get("operation_run_id") or "") for row in fake.events)
+
+        feed_count = len(waiting["feed"])
+        for _ in range(5):
+            polled = client.get(f"/sessions/{session_id}").json()
+            assert len(polled["feed"]) == feed_count
+
+        for _ in range(5):
+            repeated_wait = client.post(f"/sessions/{session_id}/step").json()
+        waiting_rows = [
+            row
+            for row in repeated_wait["feed"]
+            if row["status"] == "waiting"
+            and row["message"] == "Ожидается решение контролёра"
+        ]
+        assert len(waiting_rows) == 1

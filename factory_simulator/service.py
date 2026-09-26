@@ -165,6 +165,15 @@ class SessionManager:
         event_id: str | None = None,
         event_type: str | None = None,
     ) -> None:
+        if status == "waiting" and session.feed:
+            latest = session.feed[-1]
+            if (
+                latest.status == status
+                and latest.item_id == item_id
+                and latest.message == message
+                and latest.event_id is None
+            ):
+                return
         session.feed.append(
             FeedEntry(
                 at=datetime.now(timezone.utc),

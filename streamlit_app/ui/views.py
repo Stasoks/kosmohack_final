@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime, timedelta, timezone
 from functools import wraps
+from html import escape
 from typing import Callable
 
 import streamlit as st
@@ -11,11 +13,19 @@ from streamlit_app.api_client.simulator import simulator_request
 from streamlit_app.ui.presentation import (
     activity_presentation,
     alert_explanation,
-    actual_state_rows,
     api_error_message,
     birth_window_presentation,
     coverage_explanation,
+    cause_chart_rows,
+    control_device_label,
+    control_device_invalidation_payload,
+    defect_chart_rows,
+    defect_label,
     decision_validation_error,
+    detection_chart_rows,
+    duration_label,
+    equipment_issue_label,
+    equipment_issue_suggestion,
     evidence_groups,
     evidence_presentation,
     format_timestamp,
@@ -24,10 +34,19 @@ from streamlit_app.ui.presentation import (
     item_table_rows,
     label,
     nonconformance_table_rows,
+    operation_label,
+    percentage_label,
+    period_validation_error,
     reason_validation_error,
-    scenario_acceptance_checks,
+    route_name_label,
+    route_revision_label,
+    scenario_human_checks,
+    scenario_proof,
+    scenario_title,
+    simulator_feed_message,
     split_nonconformances,
     structure_notice,
+    utc_iso,
 )
 
 
@@ -65,8 +84,17 @@ def overview() -> None:
     permissions = set(st.session_state.profile["permissions"])
     if "VIEW_PRODUCT" in permissions:
         items = request("GET", "/api/v1/items")
+        routes = request("GET", "/api/v1/routes")
+        route_names = {
+            row["code"]: route_name_label(row["name"], row["code"])
+            for row in routes
+        }
         st.subheader("Изделия")
-        st.dataframe(item_table_rows(items), use_container_width=True, hide_index=True)
+        st.dataframe(
+            item_table_rows(items, route_names),
+            use_container_width=True,
+            hide_index=True,
+        )
         if any(item.get("structure_status") == "degraded" for item in items):
             st.info(
                 "Для части изделий структура компонентов недоступна. "
@@ -111,12 +139,12 @@ def pending_reviews() -> None:
     if not all_rows:
         return
     labels = {
-        f"{row['item_id']} · {row['defect_type']} · {label(row['verdict'])}": row["id"]
+        f"{row['item_id']} · {defect_label(row['defect_type'])} · {label(row['verdict'])}": row["id"]
         for row in all_rows
     }
     selected = labels[st.selectbox("Карточка несоответствия", labels)]
     card = request("GET", f"/api/v1/nonconformances/{selected}")
-    st.subheader(f"Несоответствие · {card['defect_type']}")
+    st.subheader(f"Несоответствие · {defect_label(card['defect_type'])}")
     metrics = st.columns(4)
     metrics[0].metric("Статус решения", label(card.get("verdict")))
     metrics[1].metric("Решение по изделию", label(card.get("disposition")))
@@ -237,14 +265,17 @@ def timeline() -> None:
     item = request("GET", f"/api/v1/items/{item_id}")
     timeline_value = request("GET", f"/api/v1/items/{item_id}/timeline")
     analyses = request("GET", f"/api/v1/items/{item_id}/analysis")
+    routes = request("GET", "/api/v1/routes")
+    route = next(
+        (row for row in routes if row.get("code") == item.get("route_code")), None
+    )
     cols = st.columns(4)
     cols[0].metric("Статус изделия", label(item.get("status")))
-    cols[1].metric("Ревизия", item.get("revision") or "—")
-    cols[2].metric(
-        "Маршрут",
-        item.get("route_code") or "—",
-        f"ревизия {item['route_revision']}" if item.get("route_revision") else None,
+    cols[1].metric(
+        "Действующий маршрут",
+        route_name_label((route or {}).get("name") or "Маршрут изделия", item.get("route_code")),
     )
+    cols[2].metric("Версия маршрута", item.get("route_revision") or "—")
     cols[3].metric("Структура", label(item.get("structure_status")))
     notice = structure_notice(item.get("structure_status"))
     if notice:
@@ -255,40 +286,76 @@ def timeline() -> None:
     activity = timeline_value.get("activity") or []
     if not activity:
         st.info("Для изделия пока нет записей в истории.")
+    st.markdown(
+        """
+        <style>
+        .traceq-timeline {margin: .35rem 0 1rem 0;}
+        .traceq-event {display:grid;grid-template-columns:5.8rem 1.4rem 1fr;min-height:4rem;}
+        .traceq-time {color:#667085;font-size:.82rem;padding-top:.15rem;text-align:right;}
+        .traceq-rail {position:relative;display:flex;justify-content:center;}
+        .traceq-rail:after {content:"";position:absolute;top:1rem;bottom:-.25rem;width:2px;background:#d0d5dd;}
+        .traceq-event:last-child .traceq-rail:after {display:none;}
+        .traceq-dot {z-index:1;width:.78rem;height:.78rem;border-radius:50%;margin-top:.3rem;background:#2878bd;border:2px solid white;box-shadow:0 0 0 2px #2878bd;}
+        .traceq-event.warning .traceq-dot {background:#f79009;box-shadow:0 0 0 2px #f79009;}
+        .traceq-event.critical .traceq-dot {background:#d92d20;box-shadow:0 0 0 2px #d92d20;}
+        .traceq-event.action .traceq-dot {background:#7f56d9;box-shadow:0 0 0 2px #7f56d9;}
+        .traceq-card {padding:0 0 .9rem .35rem;}
+        .traceq-title {font-weight:650;color:#101828;line-height:1.35;}
+        .traceq-lines {color:#475467;font-size:.9rem;margin-top:.18rem;}
+        .traceq-full-time {color:#98a2b3;font-size:.72rem;margin-top:.18rem;}
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+    technical_activity = []
+    timeline_events = []
     for row in activity:
         shown = activity_presentation(row)
-        if row.get("type") == "control_device_invalidated":
-            st.warning(f"**{shown['time']} — {shown['title']}**")
-        elif (row.get("details") or {}).get("trust_status") == "CONFLICTED":
-            st.warning(f"**{shown['time']} — Конфликт результатов контроля**")
-            st.write(
-                "Две эквивалентные проверки дали несовместимые результаты. До разрешения "
-                "конфликта ни один результат не используется как достоверная граница."
-            )
-        else:
-            st.markdown(f"**{shown['time']} — {shown['title']}**")
-        if shown["lines"]:
-            st.write(" · ".join(shown["lines"]))
+        lines = list(shown["lines"])
         coverage_rows = (row.get("details") or {}).get("coverage") or []
         for coverage in coverage_rows:
-            st.caption(
-                f"{coverage.get('defect_type')}: "
+            lines.append(
+                f"{defect_label(coverage.get('defect_type'))}: "
                 f"{label(coverage.get('coverage'), domain='coverage')} — "
                 f"{coverage_explanation(coverage.get('coverage'))}"
             )
-        technical_bits = [
-            value
-            for value in (
-                f"event {shown['event_id']}" if shown.get("event_id") else None,
-                f"source {shown['source_id']}" if shown.get("source_id") else None,
-                f"NCR {shown['nonconformance_id']}" if shown.get("nonconformance_id") else None,
-            )
-            if value
-        ]
-        if technical_bits:
-            st.caption(" · ".join(technical_bits))
+        lines_html = "<br>".join(escape(str(value)) for value in lines if value)
+        lines_block = (
+            f'<div class="traceq-lines">{lines_html}</div>' if lines_html else ""
+        )
+        timeline_events.append(
+            f"""
+            <div class="traceq-event {escape(shown['tone'])}">
+              <div class="traceq-time" title="{escape(shown['time'])}">{escape(shown['short_time'])}</div>
+              <div class="traceq-rail"><span class="traceq-dot"></span></div>
+              <div class="traceq-card">
+                <div class="traceq-title">{escape(shown['title'])}</div>
+                {lines_block}
+                <div class="traceq-full-time">{escape(shown['time'])}</div>
+              </div>
+            </div>
+            """
+        )
+        technical_activity.append(
+            {
+                "Время": shown["time"],
+                "Тип": row.get("type"),
+                "event_id": shown.get("event_id"),
+                "source_id": shown.get("source_id"),
+                "NCR": shown.get("nonconformance_id"),
+                "details": row.get("details"),
+            }
+        )
+    if timeline_events:
+        st.markdown(
+            '<div class="traceq-timeline">'
+            + "".join(timeline_events)
+            + "</div>",
+            unsafe_allow_html=True,
+        )
 
-    with st.expander("Техническая история событий"):
+    with st.expander("Технические сведения истории"):
+        st.dataframe(technical_activity, use_container_width=True, hide_index=True)
         st.dataframe(timeline_value["events"], use_container_width=True, hide_index=True)
 
     st.subheader("Интервалы возникновения дефектов")
@@ -296,7 +363,8 @@ def timeline() -> None:
         st.info("Для изделия нет анализа несоответствий.")
     for analysis in analyses:
         with st.expander(
-            f"{analysis['defect_type']} · {label(analysis['cause_status'])}", expanded=True
+            f"{defect_label(analysis['defect_type'])} · {label(analysis['cause_status'])}",
+            expanded=True,
         ):
             st.info(
                 "События внутри интервала являются контекстом. "
@@ -312,15 +380,11 @@ def timeline() -> None:
                 st.markdown(
                     f"**Версия анализа {version['version']} · {summary['title']}**"
                 )
-                st.caption(f"Технический статус: {version['status']}")
                 st.write(summary["explanation"])
                 boundaries = st.columns(2)
                 if summary["last_good"]:
                     boundaries[0].markdown("**Последняя достоверная проверка без дефекта**")
                     boundaries[0].write(format_timestamp(summary["last_good"].get("occurred_at")))
-                    boundaries[0].caption(
-                        f"event id: {summary['last_good'].get('source_event_id') or '—'}"
-                    )
                 else:
                     boundaries[0].markdown("**Последняя достоверная проверка без дефекта**")
                     boundaries[0].write("Отсутствует")
@@ -331,16 +395,13 @@ def timeline() -> None:
                         or version.get("right_boundary_at")
                     )
                 )
-                boundaries[1].caption(
-                    f"event id: {(summary['first_defect'] or {}).get('source_event_id') or '—'}"
-                )
                 if summary["operations"]:
                     st.markdown("**Операции внутри интервала**")
                     for operation in summary["operations"]:
                         details = operation.get("details") or {}
                         st.write(
                             f"{format_timestamp(operation.get('occurred_at'))} — "
-                            f"{details.get('operation_id') or details.get('operation_run_id') or 'Операция'}"
+                            f"{operation_label(details.get('operation_id'), details.get('operation_name'))}"
                         )
 
                 for group_name, evidence in evidence_groups(version["evidence"]).items():
@@ -357,9 +418,7 @@ def timeline() -> None:
                             st.markdown(f"**{shown['title']}**")
                             if shown["note"]:
                                 st.caption(shown["note"])
-                        st.write(
-                            f"{shown['time']} · event id: {shown['event_id']}"
-                        )
+                        st.write(shown["time"])
                         coverage = evidence_row.get("coverage")
                         if coverage:
                             st.write(
@@ -372,9 +431,6 @@ def timeline() -> None:
                                 " · ".join(
                                     str(value)
                                     for value in (
-                                        f"source: {observation.get('source_id')}"
-                                        if observation.get("source_id")
-                                        else None,
                                         label(observation.get("inspection_result")),
                                         label(observation.get("trust_status")),
                                     )
@@ -387,20 +443,78 @@ def timeline() -> None:
 def analytics() -> None:
     header("Производственная аналитика")
     kpi = request("GET", "/api/v1/analytics/kpi")
-    cols = st.columns(3)
+    cols = st.columns(5)
     cols[0].metric("Проверено изделий", kpi["inspected_items"])
-    cols[1].metric("Сигналы о дефектах", kpi["observed_defect_signals"])
-    cols[2].metric("Физические дефекты", kpi["number_of_unique_defects"])
-    second = st.columns(4)
-    second[0].metric("Подтверждённые физические дефекты", kpi["confirmed_physical_defects"])
-    second[1].metric("Изделия с подтверждённым НС", kpi["items_with_confirmed_nc"])
-    second[2].metric("Изделия с доработкой", kpi["rework_items"])
-    fpy = kpi.get("first_pass_yield")
-    second[3].metric("Выход годных с первого раза", "—" if fpy is None else f"{fpy:.1%}")
+    cols[1].metric(
+        "С подтверждёнными несоответствиями", kpi["items_with_confirmed_nc"]
+    )
+    cols[2].metric("Выход годных с первого раза", percentage_label(kpi.get("first_pass_yield")))
+    cols[3].metric("Доля изделий с доработкой", percentage_label(kpi.get("rework_item_rate")))
+    cols[4].metric("Подтверждённых физических дефектов", kpi["confirmed_physical_defects"])
     st.caption(
         "Выход годных с первого раза = доля оценимых проверенных изделий без "
         "подтверждённого несоответствия. Повторные сигналы одного дефекта не увеличивают "
         "число физических дефектов."
+    )
+
+    left, right = st.columns(2)
+    with left:
+        st.subheader("Дефекты по типам")
+        defect_rows = defect_chart_rows(kpi.get("defects_by_type"))
+        if defect_rows:
+            st.bar_chart(
+                defect_rows,
+                x="Тип дефекта",
+                y="Количество",
+                horizontal=True,
+            )
+        else:
+            st.info("Данных о физических дефектах пока нет.")
+    with right:
+        st.subheader("Статус причин")
+        st.bar_chart(
+            cause_chart_rows(kpi),
+            x="Статус причины",
+            y="Количество",
+            horizontal=True,
+        )
+
+    st.subheader("Где обнаруживаются дефекты")
+    detection_rows = detection_chart_rows(
+        kpi.get("detected_defects_by_line_station") or []
+    )
+    if detection_rows:
+        st.bar_chart(
+            detection_rows,
+            x="Место обнаружения",
+            y="Количество",
+            horizontal=True,
+        )
+        st.caption("Место обнаружения не означает причину возникновения дефекта.")
+    else:
+        st.info("Данных о местах обнаружения пока нет.")
+
+    st.subheader("Операционные показатели")
+    operational = st.columns(5)
+    operational[0].metric(
+        "Средняя длительность",
+        duration_label(kpi.get("operation_duration_avg_seconds")),
+    )
+    operational[1].metric(
+        "Медиана длительности",
+        duration_label(kpi.get("operation_duration_median_seconds")),
+    )
+    operational[2].metric(
+        "Длительность P95",
+        duration_label(kpi.get("operation_duration_p95_seconds")),
+    )
+    operational[3].metric(
+        "Средняя ширина интервала",
+        duration_label(kpi.get("birth_window_width_avg_seconds")),
+    )
+    operational[4].metric(
+        "Средняя задержка обнаружения",
+        duration_label(kpi.get("post_operation_detection_delay_avg_seconds")),
     )
     technical_data(kpi, "Технические данные KPI")
 
@@ -410,26 +524,27 @@ def data_health() -> None:
     value = request("GET", "/api/v1/analytics/data-health")
     ingestion = value.get("ingestion") or {}
     st.subheader("Приём событий")
-    cols = st.columns(4)
+    cols = st.columns(3)
     for column, (status, title) in zip(
         cols,
         [
             ("accepted", "Принято"),
             ("duplicate", "Повторные доставки"),
             ("rejected", "Отклонено"),
-            (None, "Последнее событие"),
         ],
     ):
-        column.metric(
-            title,
-            format_timestamp(value.get("last_ingest_at"))
-            if status is None
-            else ingestion.get(status, 0),
-        )
+        column.metric(title, ingestion.get(status, 0))
+    st.markdown(
+        f"**Последнее принятое событие:** {format_timestamp(value.get('last_ingest_at'))}"
+    )
     if value.get("errors"):
         st.warning("Есть отклонённые события. Причины доступны в технических данных.")
 
-    st.subheader("Проекции изделий")
+    st.subheader("Актуальность состояния изделий")
+    st.caption(
+        "TRACE-Q восстанавливает текущее состояние изделия из истории событий. "
+        "Здесь показано, успешно ли рассчитано это состояние."
+    )
     projection_rows = [
         {"Состояние": label(status, domain="projection"), "Количество": count}
         for status, count in (value.get("projections") or {}).items()
@@ -500,16 +615,37 @@ def route_editor() -> None:
     header("Маршруты")
     routes = request("GET", "/api/v1/routes")
     if routes:
-        labels = {f"{route['code']} · {route['name']}": route for route in routes}
+        labels = {}
+        for value in routes:
+            current = next(
+                (
+                    row
+                    for row in value["revisions"]
+                    if row["id"] == value.get("active_revision_id")
+                ),
+                None,
+            )
+            labels[
+                route_revision_label(
+                    value["name"],
+                    (current or {}).get("revision"),
+                    route_code=value["code"],
+                )
+            ] = value
         route = labels[st.selectbox("Маршрут", labels)]
         active = next(
             (row for row in route["revisions"] if row["id"] == route.get("active_revision_id")),
             None,
         )
-        st.metric(
-            "Активная ревизия",
-            f"v{active['revision']}" if active else "Не назначена",
+        route_cols = st.columns(2)
+        route_cols[0].markdown(
+            f"**Действующий маршрут**  \n"
+            f"{route_name_label(route['name'], route['code'])}"
         )
+        route_cols[1].markdown(
+            f"**Версия маршрута**  \n{active['revision'] if active else 'Не назначена'}"
+        )
+        st.caption(f"Технический код: {route['code']}")
         technical_data(route, "Технические данные маршрута")
         revisions = route["revisions"]
         base = revisions[-1]["steps"] if revisions else []
@@ -844,54 +980,125 @@ def blast_radius() -> None:
     permissions = set(st.session_state.profile["permissions"])
 
     if "RUN_BLAST_RADIUS" in permissions:
+        st.subheader("Проблемы оборудования, требующие анализа")
+        issues = request("GET", "/api/v1/risk/equipment-issues")
+        if issues:
+            for issue in issues[:10]:
+                issue_columns = st.columns([4, 1])
+                issue_columns[0].warning(
+                    f"**Требует анализа**  \n"
+                    f"Оборудование: {issue['equipment_id']}  \n"
+                    f"Предупреждение: {equipment_issue_label(issue.get('code'))}  \n"
+                    f"Время: {format_timestamp(issue.get('occurred_at'))}"
+                )
+                if issue_columns[1].button(
+                    "Оценить радиус влияния",
+                    key=f"risk-issue-{issue['event_id']}",
+                    use_container_width=True,
+                ):
+                    suggestion = equipment_issue_suggestion(issue)
+                    st.session_state.blast_factor_type = suggestion["factor_type"]
+                    st.session_state.blast_factor_value = suggestion["factor_value"]
+                    st.session_state.blast_from_date = suggestion["affected_from"].date()
+                    st.session_state.blast_from_time = suggestion[
+                        "affected_from"
+                    ].time().replace(tzinfo=None)
+                    st.session_state.blast_to_date = suggestion["affected_to"].date()
+                    st.session_state.blast_to_time = suggestion["affected_to"].time().replace(
+                        tzinfo=None
+                    )
+                    st.session_state.blast_interval_suggested = True
+                    st.rerun()
+        else:
+            st.info("Предупреждений оборудования, требующих анализа, пока нет.")
+
         st.subheader("Поиск потенциально затронутых изделий")
         st.info(
             "Расчёт находит изделия по общему фактору и создаёт предложение. "
             "Он не объявляет найденные изделия дефектными и не применяет ограничения "
             "без решения уполномоченного сотрудника."
         )
+        now = datetime.now(timezone.utc)
+        st.session_state.setdefault("blast_factor_type", "equipment")
+        st.session_state.setdefault("blast_factor_value", "")
+        st.session_state.setdefault("blast_from_date", (now - timedelta(minutes=30)).date())
+        st.session_state.setdefault(
+            "blast_from_time", (now - timedelta(minutes=30)).time().replace(tzinfo=None)
+        )
+        st.session_state.setdefault("blast_to_date", now.date())
+        st.session_state.setdefault("blast_to_time", now.time().replace(tzinfo=None))
         with st.form("blast_radius"):
             factor_type = st.selectbox(
                 "Общий фактор",
                 ["equipment", "tool", "material_lot", "control_device", "component", "time_interval"],
                 format_func=lambda value: label(value, domain="risk_factor"),
+                key="blast_factor_type",
             )
-            factor_value = st.text_input("Идентификатор или значение фактора")
-            affected_from = st.text_input("Начало интервала (ISO-8601)", key="blast_from")
-            affected_to = st.text_input("Конец интервала (ISO-8601)", key="blast_to")
+            factor_value = st.text_input(
+                "Оборудование или значение общего фактора",
+                key="blast_factor_value",
+            )
+            if st.session_state.get("blast_interval_suggested"):
+                st.caption(
+                    "Предложенный интервал: 30 минут до предупреждения. "
+                    "При необходимости измените его. Это не доказанный период неисправности."
+                )
+            period_columns = st.columns(2)
+            with period_columns[0]:
+                st.markdown("**Начало периода**")
+                affected_from_date = st.date_input("Дата начала", key="blast_from_date")
+                affected_from_time = st.time_input("Время начала", key="blast_from_time")
+            with period_columns[1]:
+                st.markdown("**Конец периода**")
+                affected_to_date = st.date_input("Дата окончания", key="blast_to_date")
+                affected_to_time = st.time_input("Время окончания", key="blast_to_time")
+            st.caption("Время указано в UTC.")
             action = st.selectbox(
-                "Предлагаемое действие",
+                "Что сделать с потенциально затронутыми изделиями?",
                 ["REVIEW_REQUIRED", "REINSPECTION_REQUIRED", "HOLD"],
                 format_func=lambda value: label(value, domain="containment"),
             )
             rationale = st.text_area("Обоснование")
-            if st.form_submit_button("Рассчитать и создать предложение"):
-                result = request("POST", "/api/v1/risk/blast-radius", json={
-                    "factor_type": factor_type,
-                    "factor_value": factor_value,
-                    "affected_from": affected_from,
-                    "affected_to": affected_to,
-                    "proposed_action": action,
-                    "rationale": rationale,
-                })
-                st.success(f"Найдено изделий: {len(result['affected_items'])}")
-                st.warning("Ограничения пока не применены: предложение ожидает согласования.")
-                if result["affected_items"]:
-                    st.dataframe(
-                        [
-                            {
-                                "Изделие": row["item_id"],
-                                "Связь": " → ".join(row["relationship_path"]),
-                                "Операция": row.get("operation_run_id") or "—",
-                                "Последний контроль": row.get("last_relevant_inspection") or "—",
-                                "Предложение": label(row["proposed_action"], domain="containment"),
-                            }
-                            for row in result["affected_items"]
-                        ],
-                        use_container_width=True,
-                        hide_index=True,
+            if st.form_submit_button(
+                "Найти потенциально затронутые изделия и создать предложение"
+            ):
+                affected_from = utc_iso(affected_from_date, affected_from_time)
+                affected_to = utc_iso(affected_to_date, affected_to_time)
+                validation_error = period_validation_error(affected_from, affected_to)
+                if not factor_value.strip():
+                    validation_error = "Укажите оборудование или значение общего фактора."
+                elif len(rationale.strip()) < 3:
+                    validation_error = "Укажите обоснование не короче 3 символов."
+                if validation_error:
+                    st.error(validation_error)
+                else:
+                    result = request("POST", "/api/v1/risk/blast-radius", json={
+                        "factor_type": factor_type,
+                        "factor_value": factor_value,
+                        "affected_from": affected_from,
+                        "affected_to": affected_to,
+                        "proposed_action": action,
+                        "rationale": rationale,
+                    })
+                    st.success(f"Потенциально затронутые изделия: {len(result['affected_items'])}")
+                    st.warning(
+                        "Ограничения не применены автоматически: предложение ожидает согласования."
                     )
-                technical_data(result)
+                    if result["affected_items"]:
+                        st.dataframe(
+                            [
+                                {
+                                    "Изделие": row["item_id"],
+                                    "Предлагаемое действие": label(
+                                        row["proposed_action"], domain="containment"
+                                    ),
+                                }
+                                for row in result["affected_items"]
+                            ],
+                            use_container_width=True,
+                            hide_index=True,
+                        )
+                    technical_data(result, "Технические сведения предложения")
 
     if "APPROVE_CONTAINMENT" in permissions:
         st.subheader("Предложения, ожидающие согласования")
@@ -935,28 +1142,118 @@ def blast_radius() -> None:
             st.info("Нет предложений, ожидающих согласования.")
 
     if "INVALIDATE_CONTROL_DEVICE" in permissions:
-        st.subheader("Признать контрольное устройство недостоверным")
-        with st.form("invalidate_device"):
-            device_id = st.text_input("Device ID")
-            invalid_from = st.text_input("Начало затронутого интервала (ISO-8601)")
-            invalid_to = st.text_input("Конец затронутого интервала (ISO-8601)")
-            invalid_reason = st.text_area("Причина инвалидации")
-            invalid_type = st.text_input("Тип / код инвалидации")
-            if st.form_submit_button("Зафиксировать недостоверность"):
-                result = request(
-                    "POST",
-                    "/api/v1/risk/control-devices/invalidate",
-                    json={
-                        "device_id": device_id,
-                        "affected_from": invalid_from,
-                        "affected_to": invalid_to,
-                        "reason": invalid_reason,
-                        "invalidation_type": invalid_type or None,
-                        "supporting_evidence_refs": [],
-                    },
+        st.subheader("Отметить результаты контрольного устройства как недостоверные")
+        st.info(
+            "Используйте этот раздел, если камера или другое средство контроля работало "
+            "некорректно. Исходные результаты сохранятся в истории, но TRACE-Q перестанет "
+            "использовать их как достоверные доказательства и пересчитает анализ."
+        )
+        devices = request("GET", "/api/v1/risk/control-devices")
+        if not devices:
+            st.info("В истории пока нет известных контрольных устройств.")
+        else:
+            device_labels = {
+                (
+                    f"{control_device_label(row['device_id'])} · "
+                    f"наблюдений: {row['observation_count']}"
+                ): row
+                for row in devices
+            }
+            latest_observed = max(
+                (
+                    datetime.fromisoformat(
+                        str(row["last_observed_at"]).replace("Z", "+00:00")
+                    )
+                    for row in devices
+                    if row.get("last_observed_at")
+                ),
+                default=datetime.now(timezone.utc),
+            )
+            if latest_observed.tzinfo is None:
+                latest_observed = latest_observed.replace(tzinfo=timezone.utc)
+            st.session_state.setdefault(
+                "invalid_from_date", (latest_observed - timedelta(minutes=30)).date()
+            )
+            st.session_state.setdefault(
+                "invalid_from_time",
+                (latest_observed - timedelta(minutes=30)).time().replace(tzinfo=None),
+            )
+            st.session_state.setdefault("invalid_to_date", latest_observed.date())
+            st.session_state.setdefault(
+                "invalid_to_time", latest_observed.time().replace(tzinfo=None)
+            )
+            with st.form("invalidate_device"):
+                selected_device_label = st.selectbox(
+                    "Контрольное устройство", device_labels
                 )
-                st.success(f"Пересчитано изделий: {len(result['affected_items'])}")
-                technical_data(result)
+                invalid_period = st.columns(2)
+                with invalid_period[0]:
+                    st.markdown("**Начало периода**")
+                    invalid_from_date = st.date_input(
+                        "Дата начала недостоверных результатов",
+                        key="invalid_from_date",
+                    )
+                    invalid_from_time = st.time_input(
+                        "Время начала недостоверных результатов",
+                        key="invalid_from_time",
+                    )
+                with invalid_period[1]:
+                    st.markdown("**Конец периода**")
+                    invalid_to_date = st.date_input(
+                        "Дата окончания недостоверных результатов",
+                        key="invalid_to_date",
+                    )
+                    invalid_to_time = st.time_input(
+                        "Время окончания недостоверных результатов",
+                        key="invalid_to_time",
+                    )
+                st.caption("Время указано в UTC.")
+                invalid_reason = st.text_area("Причина")
+                invalid_type = st.selectbox(
+                    "Тип проблемы",
+                    [
+                        "CALIBRATION_FAILURE",
+                        "DEVICE_FAILURE",
+                        "MISCONFIGURATION",
+                        "INCORRECT_CONFIGURATION",
+                        "OTHER",
+                    ],
+                    format_func=lambda value: label(
+                        value, domain="invalidation_type"
+                    ),
+                )
+                if st.form_submit_button(
+                    "Зафиксировать недостоверность и пересчитать анализ"
+                ):
+                    invalid_from = utc_iso(invalid_from_date, invalid_from_time)
+                    invalid_to = utc_iso(invalid_to_date, invalid_to_time)
+                    validation_error = period_validation_error(
+                        invalid_from, invalid_to
+                    )
+                    if len(invalid_reason.strip()) < 3:
+                        validation_error = "Укажите причину не короче 3 символов."
+                    if validation_error:
+                        st.error(validation_error)
+                    else:
+                        selected_device = device_labels[selected_device_label]
+                        payload = control_device_invalidation_payload(
+                            device_id=selected_device["device_id"],
+                            affected_from_date=invalid_from_date,
+                            affected_from_time=invalid_from_time,
+                            affected_to_date=invalid_to_date,
+                            affected_to_time=invalid_to_time,
+                            reason=invalid_reason,
+                            invalidation_type=invalid_type,
+                        )
+                        result = request(
+                            "POST",
+                            "/api/v1/risk/control-devices/invalidate",
+                            json=payload,
+                        )
+                        st.success(
+                            f"Пересчитано изделий: {len(result['affected_items'])}"
+                        )
+                        technical_data(result, "Технические сведения пересчёта")
 
 
 @st.fragment(run_every=1.0)
@@ -992,7 +1289,11 @@ def _simulator_live_status(session_id: str) -> None:
     completed = sum(1 for item in session["items"] if item["completed"])
     cols = st.columns(4)
     cols[0].metric("Состояние линии", status_labels.get(session["status"], session["status"]))
-    cols[1].metric("Маршрут", session["route"]["route_code"], f"v{session['route']['revision']}")
+    cols[1].markdown(
+        f"**Действующий маршрут**  \n"
+        f"{session['route'].get('route_name') or 'Производственный маршрут'}  \n"
+        f"Версия {session['route']['revision']}"
+    )
     cols[2].metric("Изделия", len(session["items"]), f"завершено {completed}")
     cols[3].metric("Отправлено событий", session["event_counter"])
     if session.get("last_error"):
@@ -1017,7 +1318,9 @@ def _simulator_live_status(session_id: str) -> None:
                 "Операция": step["operation_name"],
                 "Станция": step["station_id"],
                 "Качество": (
-                    "Обнаружено несоответствие"
+                    f"Обнаружено: {defect_label(item['active_defects'][0])}"
+                    if item.get("active_defects")
+                    else "Обнаружено несоответствие"
                     if item["phase"] == "wait_controller"
                     else "Повторный контроль выполнен"
                     if item["phase"] == "wait_release"
@@ -1038,7 +1341,7 @@ def _simulator_live_status(session_id: str) -> None:
                     "Изделие": row.get("item_id") or "—",
                     "Событие": label(row.get("event_type"), domain="event_type"),
                     "Результат": label(row["status"], domain="ingestion"),
-                    "Сообщение": row["message"],
+                    "Сообщение": simulator_feed_message(row),
                 }
                 for row in reversed(session["feed"][-20:])
             ],
@@ -1064,12 +1367,16 @@ def factory_simulator() -> None:
         with st.form("create_simulation"):
             routes = simulator_request("GET", "/routes")
             route_labels = {
-                f"{row['code']} · {row['name']} · v{row['revision']}": row["code"]
+                route_revision_label(
+                    row["name"], row["revision"], route_code=row["code"]
+                ): row["code"]
                 for row in routes
             }
             route_code = route_labels[
                 st.selectbox("Маршрут", route_labels)
             ] if route_labels else ""
+            if route_code:
+                st.caption(f"Технический код выбранного маршрута: {route_code}")
             item_count = st.number_input("Количество изделий", min_value=1, max_value=20, value=3)
             mode = st.selectbox(
                 "Режим",
@@ -1111,10 +1418,16 @@ def factory_simulator() -> None:
 
     if not sessions:
         return
-    by_label = {
-        f"{row['id'][:8]} · {row['route']['route_code']} v{row['route']['revision']} · {len(row['items'])} изд.": row["id"]
-        for row in sessions
-    }
+    by_label = {}
+    for index, row in enumerate(sessions, start=1):
+        route_title = route_revision_label(
+            row["route"].get("route_name") or "Маршрут",
+            row["route"]["revision"],
+            route_code=row["route"]["route_code"],
+        )
+        by_label[
+            f"Сессия {index} · {route_title} · {len(row['items'])} изд."
+        ] = row["id"]
     selected_id = st.session_state.get("simulator_session_id")
     selected_label = next(
         (label_text for label_text, value in by_label.items() if value == selected_id),
@@ -1170,19 +1483,22 @@ def scenario_runner() -> None:
     st.dataframe(
         [
             {
-                "Сценарий": f"{row['name']} — {row['title']}",
-                "Что проверяет": row["description"],
+                "Сценарий": f"{row['name']} — {scenario_title(row['name'], row.get('title'))}",
+                "Что проверяет": scenario_proof(row["name"], row.get("description")),
             }
             for row in scenarios
         ],
         use_container_width=True,
         hide_index=True,
     )
-    labels = {f"{row['name']} · {row['title']}": row for row in scenarios}
+    labels = {
+        f"{row['name']} · {scenario_title(row['name'], row.get('title'))}": row
+        for row in scenarios
+    }
     selected = labels[st.selectbox("Сценарий", labels)]
-    st.markdown(f"**Назначение:** {selected['description']}")
-    if selected.get("test_targets"):
-        st.caption("Проверяется: " + ", ".join(selected["test_targets"]))
+    st.markdown(
+        f"**Что проверяет:** {scenario_proof(selected['name'], selected.get('description'))}"
+    )
     st.caption(
         "Это автоматизированные приёмочные проверки, а не симуляция живого производства. "
         "Каждый сценарий подаёт фиксированные входные события и сравнивает рассчитанное "
@@ -1200,22 +1516,16 @@ def scenario_runner() -> None:
     result = st.session_state.get("scenario_result")
     if not result or result.get("scenario") != selected["name"]:
         return
-    st.header("✅ PASS" if result["passed"] else "❌ FAIL")
+    st.header("✅ Выполнено" if result["passed"] else "❌ Есть расхождения")
     (st.success if result["passed"] else st.error)(
-        "PASS — сценарий выполнен" if result["passed"] else "FAIL — есть расхождения"
+        "Сценарий подтвердил ожидаемое поведение."
+        if result["passed"]
+        else "Сценарий обнаружил расхождения с ожидаемым поведением."
     )
-    st.subheader("Рассчитанное состояние системы")
-    st.dataframe(
-        actual_state_rows(result.get("actual") or {}),
-        use_container_width=True,
-        hide_index=True,
-    )
-    st.subheader("Проверки acceptance-сценария")
-    for check in scenario_acceptance_checks(result):
+    st.subheader("Что подтвердил сценарий")
+    for check in scenario_human_checks(result):
         icon = "✓" if check["passed"] else "✗"
         st.markdown(f"**{icon} {check['name']}**")
-        if not check["passed"]:
-            st.write({"Рассчитано": check["actual"], "Ожидалось": check["expected"]})
-    if result.get("failures"):
-        st.error("\n".join(str(value) for value in result["failures"]))
-    technical_data(result, "Технический JSON")
+    st.subheader("Что это доказывает")
+    st.write(scenario_proof(selected["name"], selected.get("description")))
+    technical_data(result, "Технические результаты сценария")

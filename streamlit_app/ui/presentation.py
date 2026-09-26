@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime
+from datetime import date, datetime, time, timedelta, timezone
 from typing import Any, Iterable
 
 
@@ -40,6 +40,39 @@ LABELS: dict[str, str] = {
     "failure": "Ошибка",
     "denied": "Отказано",
     "pending": "Ожидает",
+}
+
+DEFECT_LABELS: dict[str, str] = {
+    "surface_crack": "Поверхностная трещина",
+    "scratch_or_gouge": "Царапина или задир",
+    "dent_or_deformation": "Вмятина или деформация",
+    "contamination": "Загрязнение",
+    "missing_component": "Отсутствующий компонент",
+    "misplaced_component": "Неправильно установленный компонент",
+    "burr": "Заусенец",
+}
+
+OPERATION_LABELS: dict[str, str] = {
+    "OP-INCOMING": "Входной контроль",
+    "OP-MILL": "Фрезерование",
+    "OP-GRIND": "Шлифование",
+    "OP-FINAL": "Финальная операция",
+    "OP-REWORK": "Доработка",
+    "OP-REWORK-VERIFY": "Контроль после доработки",
+    "OP-CLEAN": "Очистка",
+    "OP-TURN": "Механическая обработка",
+    "OP-ASSEMBLY": "Сборка",
+}
+
+ROUTE_LABELS: dict[str, str] = {
+    "ROUTE-A": "Маршрут приёмочного сценария",
+}
+
+EQUIPMENT_ISSUE_LABELS: dict[str, str] = {
+    "SIM_VIBRATION_HIGH": "Повышенная вибрация",
+    "VIBRATION_HIGH": "Повышенная вибрация",
+    "TEMPERATURE_HIGH": "Повышенная температура",
+    "PRESSURE_LOW": "Пониженное давление",
 }
 
 DOMAIN_LABELS: dict[str, dict[str, str]] = {
@@ -92,9 +125,10 @@ DOMAIN_LABELS: dict[str, dict[str, str]] = {
         "critical": "Критическая",
     },
     "projection": {
-        "up_to_date": "Актуальна",
-        "rebuilding": "Перестраивается",
-        "failed": "Ошибка построения",
+        "up_to_date": "Актуально",
+        "rebuilding": "Пересчитывается",
+        "stale": "Требует внимания",
+        "failed": "Ошибка расчёта",
     },
     "ingestion": {
         "accepted": "Принято",
@@ -124,6 +158,13 @@ DOMAIN_LABELS: dict[str, dict[str, str]] = {
         "RAW_LOG_INTEGRITY_FAILED": "Нарушена целостность журнала",
         "AUDIT_LOG_INTEGRITY_FAILED": "Нарушена целостность журнала действий",
         "INVALID_ACK": "Некорректное подтверждение ERP",
+    },
+    "invalidation_type": {
+        "CALIBRATION_FAILURE": "Сбой калибровки",
+        "DEVICE_FAILURE": "Неисправность устройства",
+        "MISCONFIGURATION": "Ошибка настройки",
+        "INCORRECT_CONFIGURATION": "Некорректная конфигурация",
+        "OTHER": "Другое",
     },
     "role": {
         "controller": "Контролёр качества",
@@ -211,6 +252,232 @@ ACTIVITY_TITLES = {
     "control_device_invalidated": "Контрольное устройство инвалидировано",
 }
 
+SCENARIO_PRESENTATIONS: dict[str, dict[str, Any]] = {
+    "S01": {
+        "title": "Нормальный поток без дефекта",
+        "proof": "TRACE-Q корректно проводит изделие по маршруту без ложных несоответствий и учитывает его как годное с первого раза.",
+        "assertions": [
+            ("Производственные события приняты", ("accepted_events",)),
+            ("Ложное несоответствие не создано", ("ncr_count",)),
+            ("Показатель выпуска с первого раза рассчитан корректно", ("kpi_expectations",)),
+        ],
+    },
+    "S02": {
+        "title": "Входной дефект до начала производства",
+        "proof": "Дефект, обнаруженный до операций, регистрируется без выдуманной предыдущей границы и без необоснованного назначения причины.",
+        "assertions": [
+            ("Несоответствие зарегистрировано", ("ncr",)),
+            ("Интервал возникновения оставлен открытым слева", ("birth_windows",)),
+            ("Причина не назначена автоматически", ("root_cause_status",)),
+        ],
+    },
+    "S03": {
+        "title": "Локализация интервала появления дефекта",
+        "proof": "Система ограничивает интервал появления дефекта достоверными проверками, а предупреждение оборудования сохраняет только как контекст.",
+        "assertions": [
+            ("Интервал появления дефекта локализован", ("birth_windows",)),
+            ("Подтверждающие факты распределены по ролям", ("evidence",)),
+            ("Автоматическое утверждение причины не сделано", ("root_cause_status", "must_not_output")),
+        ],
+    },
+    "S04": {
+        "title": "Недостоверный результат контроля не используется как граница",
+        "proof": "Результат контроля низкого качества сохраняется, но не сужает интервал появления дефекта.",
+        "assertions": [
+            ("Недостоверное наблюдение распознано", ("trust",)),
+            ("Интервал не сужен ошибочно", ("birth_windows",)),
+            ("Ограничение данных объяснено", ("limitations",)),
+        ],
+    },
+    "S05": {
+        "title": "Пропущен обязательный контроль",
+        "proof": "Пропуск обязательной проверки отмечается как разрыв данных и не создаёт ложную границу анализа.",
+        "assertions": [
+            ("Пропущенная контрольная точка обнаружена", ("missing_control_point",)),
+            ("Разрыв данных отражён в ограничениях", ("limitations",)),
+            ("Интервал рассчитан без выдуманных фактов", ("birth_windows",)),
+        ],
+    },
+    "S06": {
+        "title": "Повторная доставка события не создаёт дубликат",
+        "proof": "Повторная доставка безопасна: TRACE-Q распознаёт дубликат, хранит исходное событие один раз и не искажает показатели.",
+        "assertions": [
+            ("Повторная доставка распознана", ("duplicate_deliveries",)),
+            ("Исходное событие сохранено один раз", ("accepted_unique_events", "raw_event_count")),
+            ("Наблюдения и показатели не удвоились", ("observation_count", "kpi_must_not_double_count")),
+        ],
+    },
+    "S07": {
+        "title": "Позднее событие корректно перестраивает анализ",
+        "proof": "Поздно доставленный достоверный факт создаёт новую версию анализа, не переписывая исходную историю.",
+        "assertions": [
+            ("Создана новая версия анализа", ("analysis_versions",)),
+            ("Исходная история не переписана", ("raw_history_rewritten",)),
+        ],
+    },
+    "S08": {
+        "title": "Доработка, повторный контроль и выпуск",
+        "proof": "Контролёр назначает доработку, после неё выполняется повторный контроль, а выпуск разрешается только после проверки результата.",
+        "assertions": [
+            ("Контролёр назначил доработку", ("ncr",)),
+            ("Доработка и повторный контроль выполнены", ("rework_count_delta",)),
+            ("Изделие разрешено к выпуску", ("item_disposition",)),
+        ],
+    },
+    "S09": {
+        "title": "Обнаружение изменения защищённой истории",
+        "proof": "Криптографическая проверка обнаруживает изменение сохранённых данных, а обычный производственный API не предоставляет способ такой подмены.",
+        "assertions": [
+            ("До изменения целостность подтверждена", ("before_tamper",)),
+            ("Изменение защищённой записи обнаружено", ("after_tamper",)),
+            ("Производственный API не открывает такую операцию", ("production_api_must_not_expose_tamper",)),
+        ],
+    },
+    "S10": {
+        "title": "Противоречащие результаты контроля",
+        "proof": "Равноправные противоречащие результаты не разрешаются по уверенности автоматически и требуют дополнительной проверки.",
+        "assertions": [
+            ("Противоречие результатов обнаружено", ("trust_state", "inspection_session")),
+            ("Несоответствие требует дополнительной проверки", ("ncr_status",)),
+            ("Недостоверные границы не использованы", ("trusted_good_boundary", "trusted_defect_boundary", "birth_window_status")),
+        ],
+    },
+    "S11": {
+        "title": "Нет предыдущей достоверной проверки",
+        "proof": "Если исторических доказательств нет, TRACE-Q честно оставляет левую границу неизвестной.",
+        "assertions": [
+            ("Интервал оставлен открытым слева", ("birth_windows",)),
+            ("Недостаток исторических данных объяснён", ("limitations",)),
+        ],
+    },
+    "S12": {
+        "title": "Несколько типов дефекта в одном результате контроля",
+        "proof": "Один результат контроля может описывать несколько физических дефектов; изделия и дефекты при этом считаются раздельно.",
+        "assertions": [
+            ("Каждый физический дефект учтён отдельно", ("defect_occurrence_count",)),
+            ("Изделие не посчитано несколько раз", ("items_with_defects_count",)),
+            ("Для дефектов рассчитаны отдельные интервалы", ("birth_windows",)),
+        ],
+    },
+    "S13": {
+        "title": "Результат контроля невозможно оценить",
+        "proof": "Неоцениваемый результат сохраняется как ограничение и не трактуется ни как отсутствие, ни как наличие дефекта.",
+        "assertions": [
+            ("Результат отмечен как неоцениваемый", ("trust",)),
+            ("Интервал не изменён ошибочно", ("birth_windows",)),
+            ("Ограничение данных сохранено", ("limitations",)),
+        ],
+    },
+    "S14": {
+        "title": "Один идентификатор события с разным содержимым",
+        "proof": "Попытка повторно использовать идентификатор для других данных отклоняется, а исходная запись остаётся неизменной.",
+        "assertions": [
+            ("Первое событие принято", ("first_delivery",)),
+            ("Конфликтующая доставка отклонена", ("second_delivery",)),
+            ("Исходная запись сохранена без изменения", ("raw_event_count", "stored_revision")),
+        ],
+    },
+    "S15": {
+        "title": "События пришли не по порядку",
+        "proof": "Состояние операции восстанавливается по производственному времени, даже если завершение было доставлено раньше начала.",
+        "assertions": [
+            ("Оба события операции приняты", ("accepted_events",)),
+            ("Ход операции восстановлен корректно", ("operation_run",)),
+            ("Пересчёт состояния не завершился ошибкой", ("projection_failure",)),
+        ],
+    },
+    "S16": {
+        "title": "Доработка не устранила дефект",
+        "proof": "Повторное обнаружение того же дефекта не создаёт новый физический дефект и не закрывает исходное несоответствие.",
+        "assertions": [
+            ("Исходное несоответствие осталось открытым", ("ncr", "item_disposition")),
+            ("Физический дефект не продублирован", ("same_defect_occurrence",)),
+            ("Проверка доработки зафиксировала неуспех", ("verification",)),
+        ],
+    },
+    "S17": {
+        "title": "Инвалидация доказательства и пересчёт",
+        "proof": "После признания контрольного устройства недостоверным создаётся новая версия анализа, а предыдущая версия остаётся в истории.",
+        "assertions": [
+            ("Создана новая версия анализа", ("analysis_versions",)),
+            ("Наблюдение исключено из достоверных доказательств", ("derived_trust",)),
+            ("Предыдущая версия анализа сохранена", ("old_analysis_preserved",)),
+        ],
+    },
+    "S18": {
+        "title": "Радиус влияния без автоматического назначения дефекта",
+        "proof": "Система находит потенциально затронутые изделия и создаёт только предложение; дефект и ограничения автоматически не назначаются.",
+        "assertions": [
+            ("Потенциально затронутые изделия найдены", ("potentially_affected", "must_not_include")),
+            ("Дефект автоматически не назначен", ("automatic_defect_assignment",)),
+            ("Ограничения автоматически не применены", ("automatic_containment_application", "proposal_actions")),
+        ],
+    },
+    "S19": {
+        "title": "Недоступность внешней системы и повторная доставка",
+        "proof": "Решение контролёра сохраняется при недоступности ERP, а одно и то же сообщение безопасно доставляется после восстановления.",
+        "assertions": [
+            ("Решение контролёра сохранено", ("controller_decision_committed", "decision_must_not_rollback")),
+            ("Отправка восстановлена после повторной попытки", ("outbox_final_state",)),
+            ("Повтор использовал то же сообщение", ("same_message_id_on_retry",)),
+        ],
+    },
+    "S20": {
+        "title": "Неавторизованный источник контроля отклонён",
+        "proof": "Событие от неизвестного источника не попадает в производственную историю и создаёт оповещение безопасности.",
+        "assertions": [
+            ("Запрос источника отклонён", ("http_status",)),
+            ("Производственные записи не созданы", ("raw_event_count_delta", "ncr_count_delta")),
+            ("Создано оповещение безопасности", ("security_alert",)),
+        ],
+    },
+    "S21": {
+        "title": "Защита от повтора запроса и безопасная повторная доставка",
+        "proof": "TRACE-Q отличает транспортную атаку повтора от нормальной повторной доставки уже принятого бизнес-события.",
+        "assertions": [
+            ("Первый подписанный запрос принят", ("REQ-S21-1",)),
+            ("Повтор транспортного запроса отклонён", ("REQ-S21-2-REPLAY",)),
+            ("Повторная доставка события распознана как дубликат", ("REQ-S21-3-LEGIT-RETRY", "raw_event_count")),
+        ],
+    },
+    "S22": {
+        "title": "Разделение полномочий и контролируемый выпуск",
+        "proof": "Администратор не может подменить контролёра, а результат не отправляется наружу до разрешённого решения.",
+        "assertions": [
+            ("Запрещённое решение администратора отклонено", ("admin_issue_qc_decision",)),
+            ("Преждевременный выпуск заблокирован", ("export_before_controller_disposition",)),
+            ("Разрешённое решение и выпуск зафиксированы в аудите", ("controller_decision", "export_after_disposition", "audit_entries_required")),
+        ],
+    },
+    "S23": {
+        "title": "Работа без структуры компонентов",
+        "proof": "Отсутствие структуры изделия не блокирует контроль: анализ продолжается на уровне изделия целиком.",
+        "assertions": [
+            ("Отсутствие структуры распознано", ("component_structure",)),
+            ("Процесс контроля не заблокирован", ("workflow_blocked",)),
+            ("Дефект и интервал рассчитаны на уровне изделия", ("defect_key", "birth_window_status")),
+        ],
+    },
+    "S24": {
+        "title": "Изделие сохраняет назначенную версию маршрута",
+        "proof": "Изменение действующего маршрута влияет только на новые изделия и не переписывает маршрут уже запущенного изделия.",
+        "assertions": [
+            ("Старое изделие осталось на исходной версии", ("ITEM-S24-OLD",)),
+            ("Новое изделие получило новую версию", ("ITEM-S24-NEW",)),
+            ("История маршрута не переписана", ("old_route_rewritten",)),
+        ],
+    },
+    "S25": {
+        "title": "Проверка производственных показателей",
+        "proof": "Изделия, сигналы контроля, физические дефекты, решения контролёра и доработки учитываются раздельно.",
+        "assertions": [
+            ("Проверенные изделия посчитаны корректно", ("population_items", "inspected_items", "assessable_inspected_items")),
+            ("Подтверждённые несоответствия и дефекты разделены", ("items_with_confirmed_nonconformities", "unique_confirmed_defect_occurrences", "confirmed_defects_by_type")),
+            ("Доработки и отклонённые сигналы учтены корректно", ("rework_count", "rework_item_count", "rejected_signal_must_not_count_as_confirmed_nc")),
+        ],
+    },
+}
+
 
 def label(value: Any, *, domain: str | None = None) -> str:
     if value is None or value == "":
@@ -219,6 +486,50 @@ def label(value: Any, *, domain: str | None = None) -> str:
     if domain and raw in DOMAIN_LABELS.get(domain, {}):
         return DOMAIN_LABELS[domain][raw]
     return LABELS.get(raw, raw)
+
+
+def defect_label(value: Any) -> str:
+    if value is None or value == "":
+        return "—"
+    raw = str(value)
+    return DEFECT_LABELS.get(raw, raw)
+
+
+def operation_label(operation_id: Any, operation_name: Any = None) -> str:
+    if operation_name:
+        return str(operation_name)
+    if operation_id is None or operation_id == "":
+        return "Операция"
+    raw = str(operation_id)
+    return OPERATION_LABELS.get(raw, raw)
+
+
+def route_name_label(route_name: Any, route_code: Any = None) -> str:
+    raw_code = str(route_code or "")
+    return ROUTE_LABELS.get(raw_code, str(route_name or "Маршрут"))
+
+
+def route_revision_label(
+    route_name: Any, revision: Any, *, route_code: Any = None
+) -> str:
+    name = route_name_label(route_name, route_code)
+    return f"{name} · Версия {revision}" if revision not in (None, "") else name
+
+
+def equipment_issue_label(code: Any) -> str:
+    if code is None or code == "":
+        return "Предупреждение оборудования"
+    raw = str(code)
+    return EQUIPMENT_ISSUE_LABELS.get(raw, raw)
+
+
+def control_device_label(device_id: Any) -> str:
+    raw = str(device_id or "")
+    if raw == "SIM-CAMERA-01":
+        return "Камера симулятора"
+    if raw.startswith("CAM-"):
+        return f"Камера контроля · {raw}"
+    return f"Контрольное устройство · {raw}" if raw else "Контрольное устройство"
 
 
 def format_timestamp(value: Any) -> str:
@@ -234,6 +545,89 @@ def format_timestamp(value: Any) -> str:
         timezone = f" {parsed.tzname()}" if parsed.tzinfo and parsed.tzname() else ""
         return parsed.strftime("%d.%m.%Y %H:%M:%S") + timezone
     return str(value)
+
+
+def short_timestamp(value: Any) -> str:
+    parsed = value
+    if isinstance(value, str):
+        try:
+            parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        except ValueError:
+            return "—"
+    if isinstance(parsed, datetime):
+        return parsed.strftime("%H:%M:%S")
+    return "—"
+
+
+def utc_iso(date_value: date, time_value: time) -> str:
+    combined = datetime.combine(date_value, time_value).replace(tzinfo=timezone.utc)
+    return combined.isoformat().replace("+00:00", "Z")
+
+
+def period_validation_error(affected_from: str, affected_to: str) -> str | None:
+    try:
+        start = datetime.fromisoformat(affected_from.replace("Z", "+00:00"))
+        end = datetime.fromisoformat(affected_to.replace("Z", "+00:00"))
+    except ValueError:
+        return "Проверьте дату и время начала и окончания периода."
+    if end < start:
+        return "Окончание периода не может быть раньше его начала."
+    return None
+
+
+def control_device_invalidation_payload(
+    *,
+    device_id: str,
+    affected_from_date: date,
+    affected_from_time: time,
+    affected_to_date: date,
+    affected_to_time: time,
+    reason: str,
+    invalidation_type: str,
+) -> dict[str, Any]:
+    return {
+        "device_id": device_id,
+        "affected_from": utc_iso(affected_from_date, affected_from_time),
+        "affected_to": utc_iso(affected_to_date, affected_to_time),
+        "reason": reason,
+        "invalidation_type": invalidation_type,
+        "supporting_evidence_refs": [],
+    }
+
+
+def equipment_issue_suggestion(
+    issue: dict[str, Any], *, window_minutes: int = 30
+) -> dict[str, Any]:
+    raw_at = issue.get("occurred_at")
+    occurred_at = (
+        raw_at
+        if isinstance(raw_at, datetime)
+        else datetime.fromisoformat(str(raw_at).replace("Z", "+00:00"))
+    )
+    if occurred_at.tzinfo is None:
+        occurred_at = occurred_at.replace(tzinfo=timezone.utc)
+    occurred_at = occurred_at.astimezone(timezone.utc)
+    return {
+        "factor_type": "equipment",
+        "factor_value": str(issue.get("equipment_id") or ""),
+        "affected_from": occurred_at - timedelta(minutes=window_minutes),
+        "affected_to": occurred_at,
+    }
+
+
+def duration_label(value: Any) -> str:
+    if value is None:
+        return "Недостаточно данных"
+    seconds = float(value)
+    if seconds >= 3600:
+        return f"{seconds / 3600:.1f} ч"
+    if seconds >= 60:
+        return f"{seconds / 60:.1f} мин"
+    return f"{seconds:.1f} сек"
+
+
+def percentage_label(value: Any) -> str:
+    return "Недостаточно данных" if value is None else f"{float(value):.1%}"
 
 
 def structure_notice(structure_status: str | None) -> tuple[str, str] | None:
@@ -333,15 +727,30 @@ def activity_presentation(row: dict[str, Any]) -> dict[str, Any]:
     activity_type = str(row.get("type") or "")
     details = row.get("details") or {}
     lines: list[str] = []
+    tone = "normal"
     if activity_type == "inspection_result":
-        lines.append(label(details.get("inspection_result")))
-        lines.append(label(details.get("trust_status")))
-        if details.get("trust_reasons"):
+        inspection_result = details.get("inspection_result")
+        if inspection_result == "defect_detected":
+            title = "Контроль: обнаружен дефект"
+            tone = "warning"
+        elif inspection_result == "no_defect":
+            title = "Контроль: дефект не обнаружен"
+        else:
+            title = f"Контроль: {label(inspection_result)}"
+        if details.get("trust_status") in {"CONFLICTED", "INVALIDATED", "UNTRUSTED"}:
+            lines.append(label(details.get("trust_status")))
+            tone = "critical"
+        if details.get("trust_status") == "CONFLICTED":
+            title = "Конфликт результатов контроля"
             lines.append(
-                "Основание доверия: "
-                + ", ".join(str(value) for value in details["trust_reasons"])
+                "До разрешения конфликта результаты не используются как достоверная граница"
             )
     elif activity_type in {"controller_decision", "extra_inspection_requested"}:
+        title = (
+            "Запрошен дополнительный контроль"
+            if activity_type == "extra_inspection_requested"
+            else "Контролёр зафиксировал решение"
+        )
         lines.extend(
             [
                 label(details.get("verdict")),
@@ -349,7 +758,11 @@ def activity_presentation(row: dict[str, Any]) -> dict[str, Any]:
                 str(details.get("reason") or ""),
             ]
         )
+        if details.get("disposition") == "REWORK_REQUIRED":
+            title = "Контролёр назначил доработку"
+            tone = "action"
     elif activity_type == "rework_verification":
+        title = "Контролёр проверил результат доработки"
         lines.extend(
             [
                 f"Верификация: {label(details.get('verification_status'))}",
@@ -358,27 +771,44 @@ def activity_presentation(row: dict[str, Any]) -> dict[str, Any]:
             ]
         )
     elif activity_type == "final_disposition":
+        title = "Зафиксировано итоговое решение по изделию"
         lines.append(label(details.get("disposition")))
     elif activity_type in {"operation_started", "operation_finished", "rework_started", "rework_finished"}:
-        if details.get("operation_id"):
-            lines.append(f"Операция: {details['operation_id']}")
-        if details.get("operation_run_id"):
-            lines.append(f"Запуск: {details['operation_run_id']}")
+        operation = operation_label(details.get("operation_id"), details.get("operation_name"))
+        if activity_type == "operation_started":
+            title = f"Операция «{operation}» начата"
+        elif activity_type == "operation_finished":
+            title = f"Операция «{operation}» завершена"
+        elif activity_type == "rework_started":
+            title = "Доработка начата"
+        else:
+            title = "Доработка завершена"
     elif activity_type == "nonconformance_opened":
-        lines.append(f"Дефект: {details.get('defect_type') or '—'}")
+        title = f"Обнаружено несоответствие: {defect_label(details.get('defect_type'))}"
+        lines.append("Требуется решение контролёра")
+        tone = "critical"
     elif activity_type == "control_device_invalidated":
+        title = "Результаты контрольного устройства признаны недостоверными"
         lines.extend(
             [
-                f"Устройство: {details.get('device_id') or '—'}",
                 f"Причина: {details.get('reason') or '—'}",
             ]
         )
-    title = ACTIVITY_TITLES.get(activity_type, label(activity_type))
+        tone = "critical"
+    else:
+        title = ACTIVITY_TITLES.get(activity_type, label(activity_type))
     if activity_type == "inspection_result" and details.get("is_rework_check"):
-        title = "Повторный контроль после доработки"
+        result = details.get("inspection_result")
+        title = (
+            "Повторный контроль: дефект не обнаружен"
+            if result == "no_defect"
+            else "Повторный контроль: дефект обнаружен"
+        )
     return {
         "title": title,
         "time": format_timestamp(row.get("occurred_at")),
+        "short_time": short_timestamp(row.get("occurred_at")),
+        "tone": tone,
         "lines": [line for line in lines if line and line != "—"],
         "event_id": row.get("event_id"),
         "source_id": row.get("source_id"),
@@ -480,6 +910,45 @@ def scenario_acceptance_checks(result: dict[str, Any]) -> list[dict[str, Any]]:
     return checks
 
 
+def scenario_title(scenario_id: str, fallback: str | None = None) -> str:
+    presentation = SCENARIO_PRESENTATIONS.get(scenario_id) or {}
+    return str(presentation.get("title") or fallback or scenario_id)
+
+
+def scenario_proof(scenario_id: str, fallback: str | None = None) -> str:
+    presentation = SCENARIO_PRESENTATIONS.get(scenario_id) or {}
+    return str(
+        presentation.get("proof")
+        or fallback
+        or "Сценарий подтверждает заявленные бизнес-инварианты TRACE-Q."
+    )
+
+
+def scenario_human_checks(result: dict[str, Any]) -> list[dict[str, Any]]:
+    scenario_id = str(result.get("scenario") or "")
+    presentation = SCENARIO_PRESENTATIONS.get(scenario_id) or {}
+    assertions = presentation.get("assertions") or []
+    failures = [str(value) for value in result.get("failures") or []]
+    if not assertions:
+        return [
+            {"name": row["name"], "passed": row["passed"]}
+            for row in scenario_acceptance_checks(result)
+        ]
+    checks = []
+    for name, keys in assertions:
+        prefixes = tuple(
+            prefix
+            for key in keys
+            for prefix in (f"$.{key}", f"$[{key!r}]")
+        )
+        passed = not any(
+            failure.startswith(prefixes) or failure.startswith("$: ")
+            for failure in failures
+        )
+        checks.append({"name": name, "passed": passed})
+    return checks
+
+
 def actual_state_rows(actual: dict[str, Any]) -> list[dict[str, str]]:
     rows = []
     for key, value in actual.items():
@@ -496,16 +965,20 @@ def actual_state_rows(actual: dict[str, Any]) -> list[dict[str, str]]:
     return rows
 
 
-def item_table_rows(items: Iterable[dict[str, Any]]) -> list[dict[str, Any]]:
+def item_table_rows(
+    items: Iterable[dict[str, Any]],
+    route_names: dict[str, str] | None = None,
+) -> list[dict[str, Any]]:
+    route_names = route_names or {}
     return [
         {
             "Изделие": row.get("item_id"),
             "Определение": row.get("product_definition_id"),
             "Ревизия": row.get("revision"),
-            "Маршрут": row.get("route_code") or "—",
-            "Ревизия маршрута": (
-                f"v{row['route_revision']}" if row.get("route_revision") else "—"
+            "Маршрут": route_names.get(
+                str(row.get("route_code") or ""), row.get("route_code") or "—"
             ),
+            "Версия маршрута": row.get("route_revision") or "—",
             "Линия": row.get("line_id") or "—",
             "Статус": label(row.get("status")),
             "Структура": label(row.get("structure_status")),
@@ -519,7 +992,7 @@ def nonconformance_table_rows(rows: Iterable[dict[str, Any]]) -> list[dict[str, 
     return [
         {
             "Изделие": row.get("item_id"),
-            "Дефект": row.get("defect_type"),
+            "Дефект": defect_label(row.get("defect_type")),
             "Компонент": row.get("component_instance_id") or "Изделие целиком",
             "Статус решения": label(row.get("verdict")),
             "Решение по изделию": label(row.get("disposition")),
@@ -528,3 +1001,56 @@ def nonconformance_table_rows(rows: Iterable[dict[str, Any]]) -> list[dict[str, 
         }
         for row in rows
     ]
+
+
+def defect_chart_rows(values: dict[str, Any] | None) -> list[dict[str, Any]]:
+    return [
+        {"Тип дефекта": defect_label(defect_type), "Количество": int(count)}
+        for defect_type, count in sorted(
+            (values or {}).items(), key=lambda row: (-int(row[1]), row[0])
+        )
+    ]
+
+
+def detection_chart_rows(values: Iterable[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [
+        {
+            "Место обнаружения": " · ".join(
+                value
+                for value in (
+                    str(row.get("line_id") or "Линия не указана"),
+                    str(row.get("station_id") or "Станция не указана"),
+                )
+                if value
+            ),
+            "Количество": int(row.get("count") or 0),
+        }
+        for row in values
+    ]
+
+
+def cause_chart_rows(kpi: dict[str, Any]) -> list[dict[str, Any]]:
+    return [
+        {
+            "Статус причины": "Причина подтверждена человеком",
+            "Количество": int(kpi.get("established_causes") or 0),
+        },
+        {
+            "Статус причины": "Причина не установлена",
+            "Количество": int(kpi.get("unknown_causes") or 0),
+        },
+    ]
+
+
+def simulator_feed_message(row: dict[str, Any]) -> str:
+    if row.get("status") == "waiting":
+        return str(row.get("message") or "Ожидается действие пользователя")
+    event_type = row.get("event_type")
+    return {
+        "item.registered": "Изделие зарегистрировано",
+        "operator.action": "Оператор подтвердил этап маршрута",
+        "operation.started": "Производственная операция начата",
+        "operation.finished": "Производственная операция завершена",
+        "inspection.result": "Результат контроля принят TRACE-Q",
+        "machine.state": "Предупреждение оборудования принято TRACE-Q",
+    }.get(str(event_type or ""), str(row.get("message") or "Событие обработано"))

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import date, datetime, time, timezone
 from types import SimpleNamespace
 
 import httpx
@@ -9,17 +10,33 @@ from streamlit_app.api_client import client
 from streamlit_app.ui import views
 from streamlit_app.ui.navigation import authorized_page_specs
 from streamlit_app.ui.presentation import (
+    activity_presentation,
     api_error_message,
     birth_window_presentation,
     coverage_explanation,
+    cause_chart_rows,
+    control_device_label,
+    control_device_invalidation_payload,
+    defect_chart_rows,
+    defect_label,
     decision_validation_error,
+    detection_chart_rows,
+    duration_label,
+    equipment_issue_suggestion,
     evidence_groups,
     evidence_presentation,
     alert_explanation,
     label,
+    operation_label,
+    period_validation_error,
+    route_name_label,
+    route_revision_label,
     scenario_acceptance_checks,
+    scenario_human_checks,
+    scenario_title,
     split_nonconformances,
     structure_notice,
+    utc_iso,
 )
 
 
@@ -68,6 +85,79 @@ def test_presentation_labels_are_centralized(value: str, domain: str | None, exp
     assert label(value, domain=domain) == expected
 
 
+def test_defect_operation_and_route_labels_hide_known_technical_codes() -> None:
+    assert defect_label("surface_crack") == "Поверхностная трещина"
+    assert defect_label("scratch_or_gouge") == "Царапина или задир"
+    assert defect_label("custom_defect") == "custom_defect"
+    assert operation_label("OP-MILL") == "Фрезерование"
+    assert operation_label("CUSTOM-OP", "Чистовая обработка") == "Чистовая обработка"
+    assert operation_label("CUSTOM-OP") == "CUSTOM-OP"
+    assert route_revision_label("Основной маршрут корпуса", 2) == (
+        "Основной маршрут корпуса · Версия 2"
+    )
+    assert route_name_label("Fixture route ROUTE-A", "ROUTE-A") == (
+        "Маршрут приёмочного сценария"
+    )
+    assert label(None) == "—"
+    assert "None" not in duration_label(None)
+
+
+def test_date_time_helpers_produce_utc_iso_and_human_validation() -> None:
+    start = utc_iso(date(2026, 9, 26), time(11, 27, 17))
+    end = utc_iso(date(2026, 9, 26), time(11, 27, 22))
+
+    assert start == "2026-09-26T11:27:17Z"
+    assert period_validation_error(start, end) is None
+    assert period_validation_error(end, start) == (
+        "Окончание периода не может быть раньше его начала."
+    )
+
+    invalidation = control_device_invalidation_payload(
+        device_id="SIM-CAMERA-01",
+        affected_from_date=date(2026, 9, 26),
+        affected_from_time=time(11, 27, 17),
+        affected_to_date=date(2026, 9, 26),
+        affected_to_time=time(11, 27, 22),
+        reason="Сбой калибровки",
+        invalidation_type="CALIBRATION_FAILURE",
+    )
+    assert invalidation["device_id"] == "SIM-CAMERA-01"
+    assert invalidation["affected_from"] == start
+    assert invalidation["affected_to"] == end
+
+
+def test_equipment_issue_suggestion_only_prefills_editable_period() -> None:
+    suggestion = equipment_issue_suggestion(
+        {
+            "equipment_id": "EQ-LATHE-01",
+            "occurred_at": "2026-09-26T11:27:22Z",
+        }
+    )
+
+    assert suggestion["factor_type"] == "equipment"
+    assert suggestion["factor_value"] == "EQ-LATHE-01"
+    assert suggestion["affected_to"] == datetime(
+        2026, 9, 26, 11, 27, 22, tzinfo=timezone.utc
+    )
+    assert suggestion["affected_from"] == datetime(
+        2026, 9, 26, 10, 57, 22, tzinfo=timezone.utc
+    )
+    assert "proposal" not in suggestion
+
+
+def test_analytics_helpers_localize_defects_and_handle_empty_series() -> None:
+    assert defect_chart_rows({"surface_crack": 2}) == [
+        {"Тип дефекта": "Поверхностная трещина", "Количество": 2}
+    ]
+    assert defect_chart_rows({}) == []
+    assert detection_chart_rows([]) == []
+    assert cause_chart_rows({}) == [
+        {"Статус причины": "Причина подтверждена человеком", "Количество": 0},
+        {"Статус причины": "Причина не установлена", "Количество": 0},
+    ]
+    assert control_device_label("SIM-CAMERA-01") == "Камера симулятора"
+
+
 def test_birth_window_presentation_explains_bounded_and_left_open() -> None:
     bounded = birth_window_presentation(
         {
@@ -87,6 +177,35 @@ def test_birth_window_presentation_explains_bounded_and_left_open() -> None:
     assert bounded["operations"][0]["source_event_id"] == "OP-1"
     assert left_open["title"] == "Левая граница неизвестна"
     assert "нет проверки" in left_open["explanation"]
+
+
+def test_timeline_presentation_keeps_ids_out_of_the_main_text() -> None:
+    operation = activity_presentation(
+        {
+            "type": "operation_started",
+            "occurred_at": "2026-09-26T11:42:00Z",
+            "event_id": "EV-TECH-1",
+            "source_id": "MES-01",
+            "details": {
+                "operation_id": "OP-MILL",
+                "operation_run_id": "RUN-SIM-1",
+            },
+        }
+    )
+    defect = activity_presentation(
+        {
+            "type": "nonconformance_opened",
+            "occurred_at": "2026-09-26T11:47:00Z",
+            "nonconformance_id": "NCR-UUID",
+            "details": {"defect_type": "surface_crack"},
+        }
+    )
+
+    assert operation["title"] == "Операция «Фрезерование» начата"
+    assert operation["short_time"] == "11:42:00"
+    assert "RUN-SIM" not in " ".join(operation["lines"])
+    assert defect["title"] == "Обнаружено несоответствие: Поверхностная трещина"
+    assert defect["tone"] == "critical"
 
 
 def test_degraded_structure_and_partial_coverage_are_explained_as_fallbacks() -> None:
@@ -251,3 +370,34 @@ def test_scenario_presentation_separates_actual_from_generic_assertions() -> Non
             "expected": "REWORK_REQUIRED",
         },
     ]
+
+
+def test_all_scenario_titles_and_main_assertions_are_human_readable() -> None:
+    titles = [scenario_title(f"S{index:02d}") for index in range(1, 26)]
+
+    assert len(set(titles)) == 25
+    assert all(any("А" <= char <= "я" or char == "ё" for char in title) for title in titles)
+    forbidden = {
+        "GOOD",
+        "raw history",
+        "rework lifecycle",
+        "duplicate delivery",
+        "inspection",
+        "impossible_to_assess",
+    }
+    assert not any(term in title for title in titles for term in forbidden)
+
+    checks = scenario_human_checks(
+        {
+            "scenario": "S06",
+            "expected": {"duplicate_deliveries": 1},
+            "actual": {"duplicate_deliveries": 1},
+            "failures": [],
+        }
+    )
+    assert checks == [
+        {"name": "Повторная доставка распознана", "passed": True},
+        {"name": "Исходное событие сохранено один раз", "passed": True},
+        {"name": "Наблюдения и показатели не удвоились", "passed": True},
+    ]
+    assert all(not isinstance(value, (dict, list)) for row in checks for value in row.values())

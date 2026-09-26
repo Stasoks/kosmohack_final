@@ -53,6 +53,7 @@ class TraceQClient:
         return RouteSnapshot(
             route_id=route["id"],
             route_code=route["code"],
+            route_name=route["name"],
             revision_id=revision["id"],
             revision=revision["revision"],
             steps=[RouteStepSnapshot(**value) for value in revision["steps"]],
@@ -62,6 +63,9 @@ class TraceQClient:
         response = await self._request("GET", "/api/v1/routes")
         result = []
         for route in response.json():
+            if route["code"] == "ROUTE-A":
+                # Acceptance-fixture route; it is not a live production route.
+                continue
             active_id = route.get("active_revision_id")
             active = next(
                 (value for value in route["revisions"] if value["id"] == active_id),
