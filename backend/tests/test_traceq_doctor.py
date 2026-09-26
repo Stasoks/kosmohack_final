@@ -186,8 +186,8 @@ def test_parse_compose_ps_accepts_json_lines() -> None:
 
 def test_alembic_current_must_equal_heads() -> None:
     assert doctor.alembic_revision_check(
-        "20260926_0004 (head)\n", "20260926_0004 (head)\n"
+        "20260926_0005 (head)\n", "20260926_0005 (head)\n"
     ).status == "PASS"
     assert doctor.alembic_revision_check(
-        "20260926_0003\n", "20260926_0004 (head)\n"
+        "20260926_0004\n", "20260926_0005 (head)\n"
     ).status == "FAIL"

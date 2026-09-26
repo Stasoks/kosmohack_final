@@ -46,3 +46,5 @@ Snapshot включает `Item`, `OperationRun`, `Observation`, `DefectOccurren
 - нет invalid ACK alerts.
 
 Throughput и p95 измеряются и попадают в JSON/Markdown отчёты, но линейное ускорение не является критерием PASS. По умолчанию отчёты записываются в `tmp/scaling-proof/`.
+
+GitHub Actions настроен запускать только 100-item smoke как отдельный job `scaling-smoke-proof` и сохранять его JSON/Markdown отчёт как артефакт. Полный 1000-item профиль не является обязательным для каждого push. `python scripts/verify_final_improvements.py --default` использует тот же smoke-профиль и требует заранее подготовленную изолированную PostgreSQL БД.

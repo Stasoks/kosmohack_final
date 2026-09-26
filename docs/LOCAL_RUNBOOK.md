@@ -119,6 +119,15 @@ uv sync --all-groups
 ./scripts/run_tests.sh security
 ```
 
+The Doctor is read-only. Use preflight before startup and live checks after the stack is healthy:
+
+```bash
+python scripts/traceq_doctor.py --mode preflight
+python scripts/traceq_doctor.py --mode live
+```
+
+The route editor also shows the read-only Coverage Gap Analyzer. Administrators can manage runtime role capabilities in **Администрирование → Роли и права**; `simulator_reader` is locked and the final enabled human `MANAGE_USERS` capability cannot be removed.
+
 The PostgreSQL suite requires an isolated test database. The easiest Docker-backed sequence is:
 
 ```bash
@@ -131,6 +140,23 @@ docker compose -f compose.test.yaml down -v --remove-orphans
 ```
 
 The PostgreSQL suite includes the real S01-S25 acceptance run through FastAPI and PostgreSQL.
+
+For a final workstation gate, prepare and seed that isolated PostgreSQL environment, keep the required test/demo variables exported, and run:
+
+```bash
+python scripts/verify_final_improvements.py --default
+```
+
+The default profile executes the real unit, contract, PostgreSQL/S01-S25, replay, Doctor, coverage, RBAC, scaling-smoke and bounded Docker checks; it does not report unavailable infrastructure as a pass. It builds and tears down an isolated Compose acceptance project. For the optional ML-DSA-65 proof:
+
+```bash
+uv sync --all-groups --extra pq
+python scripts/verify_final_improvements.py --pq
+# Or run both profiles:
+python scripts/verify_final_improvements.py --all
+```
+
+Exit code `0` means the selected profile passed, `1` means a proof/test failed, and `2` means the runner itself encountered an internal error. The 100-item scaling smoke is part of the default proof; the optional 1000-item command and its exact prerequisites are documented in `docs/SCALING_PROOF.md`.
 
 ## 8. If startup fails
 
@@ -160,7 +186,7 @@ curl -fsS http://127.0.0.1:8080/health/ready
 docker compose -f compose.yaml -f compose.demo.yaml logs migrate seed backend
 ```
 
-The expected migration at this revision is `20260926_0004`.
+The expected migration at this revision is `20260926_0005`.
 
 ### Login fails after manual experiments
 

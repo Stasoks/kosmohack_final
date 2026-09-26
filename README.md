@@ -61,6 +61,16 @@ Useful demo points: `S03` shows a bounded Defect Birth Window, `S08` runs contro
 
 PostgreSQL integration tests use `TRACEQ_TEST_DATABASE_URL`; SQLite is intentionally not a supported integration fallback. CI also regenerates the Pydantic event models from the canonical JSON Schema in check mode, validates all 133 contract fixtures, runs S01-S25 through the real demo API, and performs a bounded Docker Compose demo smoke test.
 
+The read-only environment Doctor and the unified final proof runner are available from the repository root:
+
+```bash
+python scripts/traceq_doctor.py --mode preflight
+python scripts/traceq_doctor.py --mode live
+python scripts/verify_final_improvements.py --default
+```
+
+`--default` requires the documented isolated PostgreSQL test environment and Docker. It runs the existing replay, Doctor, coverage, RBAC, scaling, contract, unit, PostgreSQL, S01-S25 and bounded demo-stack proofs. The optional real ML-DSA-65 proof is isolated behind `uv sync --extra pq` and `python scripts/verify_final_improvements.py --pq`; `--all` combines both profiles.
+
 ## What to show during review
 
 1. Item timeline with trusted GOOD, operation, warning, and trusted DEFECT.
@@ -89,6 +99,7 @@ PostgreSQL integration tests use `TRACEQ_TEST_DATABASE_URL`; SQLite is intention
 - [Module testing guide](docs/MODULE_TESTING.md)
 - [Live factory simulator](docs/LIVE_FACTORY_SIMULATOR.md)
 - [Simulator testing](docs/SIMULATOR_TESTING.md)
+- [Deterministic scalability proof](docs/SCALING_PROOF.md)
 - [Pre-demo audit report](docs/AUDIT_REPORT.md)
 - [Assumptions and limitations](docs/assumptions.md)
 
@@ -102,6 +113,8 @@ PostgreSQL integration tests use `TRACEQ_TEST_DATABASE_URL`; SQLite is intention
 
 ## Completed hardening scope
 
-The canonical envelope owns `item_id` and `operation_run_id`; payloads do not duplicate them. Items pin a RouteRevision at registration. Source Registry supports lifecycle status, event/line/station scopes, legacy shared secrets and HMAC_V1 nonce replay protection. Server-side sessions revoke access immediately for critical actions. Rework requires a completed rework run, trusted repeat GOOD and controller verification before controlled outbound release. Evidence invalidation, Blast Radius proposals with separation of duties, S01-S25 Harness V2, occurrence-based KPI, security alerts, isolated test compose and optional hybrid-PQ profile metadata are included.
+The canonical envelope owns `item_id` and `operation_run_id`; payloads do not duplicate them. Items pin a RouteRevision at registration. Source Registry supports lifecycle status, event/line/station scopes, legacy shared secrets and HMAC_V1 nonce replay protection. Server-side sessions revoke access immediately for critical actions. Runtime role capabilities are stored in PostgreSQL, editable through an audited admin API/UI, and protected against removing the final enabled human `MANAGE_USERS` capability. Rework requires a completed rework run, trusted repeat GOOD and controller verification before controlled outbound release. Evidence invalidation, Blast Radius proposals with separation of duties, S01-S25 Harness V2, occurrence-based KPI, route coverage-gap analysis, deterministic scaling/outbox recovery proofs, security alerts and isolated test compose are included.
 
-The CI workflow executes unit/contract tests, PostgreSQL integration tests, the full S01-S25 acceptance runner, Python compilation, and a bounded Docker Compose demo smoke test.
+Hybrid checkpoints are a real optional runtime: ECDSA P-256 and ML-DSA-65 sign the same canonical checkpoint payload and both must verify. The default stack does not install the PQ dependency or activate the hybrid profile; the isolated `pq-proof` job exercises real signing, tamper detection, rotation and no-fallback behavior.
+
+CI is configured to execute unit/contract tests, PostgreSQL integration tests with S01-S25, a deterministic scaling smoke proof, the isolated PQ proof, Python compilation, and a bounded Docker Compose demo smoke test. This description is configuration, not a claim that an unobserved workflow run passed for the current revision.

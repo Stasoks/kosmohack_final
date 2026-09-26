@@ -36,6 +36,10 @@ Fixed by explicitly enabling `RUN_POSTGRES_TESTS=1` in CI/test execution and see
 
 Fixed by connecting ScenarioHarness V2 to the FastAPI demo endpoint and a PostgreSQL-backed runtime. S01-S25 now execute events plus optional actions, requests, ERP behavior, tamper actions, analysis requests and route changes.
 
+### Projection replay could recreate closed defect episodes
+
+Fixed by preserving defect-occurrence/NCR identity across rebuilds. Repeating replay does not duplicate an already closed occurrence or its analysis; a genuinely new post-closure defect still creates one new episode. PostgreSQL regression tests cover both cases.
+
 ### Rework verification could accept an unrelated GOOD
 
 Fixed. Repeat GOOD must be trusted and cover the original defect type/component scope. Item-level NCRs require item-wide component coverage rather than a check scoped only to one component.
@@ -66,6 +70,10 @@ Fixed with a serialized HMAC-SHA256 audit chain and verification alongside raw-e
 
 Fixed around `EventSource.key_id` and the external `SOURCE_HMAC_SECRETS_JSON` secret store. Secrets remain outside database rows.
 
+### Runtime role authorization was not administratively manageable
+
+Fixed with audited Role Capability Management backed by `RolePermission` in PostgreSQL. Effective permissions are resolved from the database on every request, so an already-issued access token sees a removal or restoration immediately. The admin API/UI exposes human-readable capabilities, protects the system `simulator_reader` role, requires a reason, records before/after/added/removed values, and rejects any role or user change that would remove the last enabled human `MANAGE_USERS` capability. Seed does not restore a permission removed from an existing role.
+
 ### Route revision import could activate a new revision without superseding the previous one
 
 Fixed. Route JSON import is now a critical authenticated action, writes audit, and supersedes the prior active revision when `activate=true`.
@@ -77,6 +85,18 @@ Fixed. `scripts/generate_events.py` now emits canonical item registration with `
 ### Contract code generation did not include a TypeScript artifact or evolution proof
 
 Fixed. The canonical JSON Schema now deterministically generates Pydantic models, TypeScript interfaces and the registry. An isolated 1.1 demonstration schema preserves the production 1.0 contract and adds only optional `analyzer_version` to `inspection.result`; fixture-based compatibility, generated drift and stale-output detection are checked without advertising 1.1 runtime support.
+
+### Readiness and route coverage were difficult to inspect consistently
+
+Fixed with the read-only TRACE-Q Doctor and Coverage Gap Analyzer. Doctor checks repository/environment shape, Compose/service state, health endpoints, migration head and contract drift without editing `.env`, migrations or data. The route analyzer reports uncovered product/route/defect/component combinations through the API and Streamlit without direct UI database access.
+
+### Scaling correctness had no reproducible A/B proof
+
+Fixed with a deterministic proof that writes one physical `load.jsonl`, records its SHA-256, and reuses the same bytes for 1-vs-N concurrent sender runs. Canonical projection and KPI hashes remove only declared volatile fields. The proof also compares actual 1-vs-N outbox workers, checks final business delivery uniqueness, and demonstrates persisted-backlog recovery. The 100-item profile is configured for CI; the 1000-item profile remains an explicit local proof rather than a per-push stress test.
+
+### The hybrid checkpoint profile was metadata-only
+
+Fixed with signer/key-provider abstractions and real optional ML-DSA-65 via pinned `liboqs-python`. ECDSA P-256 and ML-DSA-65 sign the same canonical checkpoint payload; hybrid verification requires both. Tests cover tamper of either signature, key rotation, unavailable historical keys, unavailable runtime and the absence of a silent classic fallback. Private key material remains in external keyrings, not PostgreSQL. The default stack remains independent of the optional PQ runtime.
 
 ### Scenario acceptance contained several hard-coded positive/negative flags
 
@@ -112,7 +132,7 @@ One bidirectional integration is implemented against the ERP emulator. 1C, Galak
 
 ## 4. Automated verification expected on the final revision
 
-The CI gate contains three jobs.
+The CI workflow is configured with five jobs. The statements below describe configuration and test scope; they do not claim that the current revision's remote workflow has completed successfully.
 
 ### unit-and-contracts
 
@@ -121,7 +141,7 @@ Checks:
 - deterministic JSON Schema -> Pydantic/TypeScript/registry generation drift;
 - isolated contract-evolution generated artifacts, complete schema delta, 1.0 inspection-fixture compatibility and stale-output detection;
 - contract fixtures;
-- non-PostgreSQL unit/security tests;
+- non-PostgreSQL unit/security tests, including Doctor, coverage and RBAC unit proofs;
 - ERP emulator tests;
 - Python `compileall`.
 
@@ -134,9 +154,18 @@ Checks:
 - demo seed;
 - database append-only restrictions;
 - full S01-S25 acceptance run through the real FastAPI/PostgreSQL stack;
+- replay idempotency and dynamic RolePermission enforcement;
 - Blast Radius approval/application;
 - route import activation lifecycle;
 - real outbox worker retry/ACK flow.
+
+### scaling-smoke-proof
+
+Creates a separate PostgreSQL service, migrates and seeds it, then runs the 100-item deterministic A/B ingestion, projection/KPI, multi-worker outbox and recovery proof. JSON and Markdown evidence are configured as a workflow artifact.
+
+### pq-proof
+
+Installs the optional PQ dependency in isolation, runs real ML-DSA-65 sign/verify/tamper smoke and the checkpoint tamper, rotation, unavailable-key and no-fallback test module. Default CI jobs do not require the PQ runtime.
 
 ### docker-demo-smoke
 
@@ -162,7 +191,7 @@ No real 1C/Galaktika/MES/KOMPAS customer endpoint, authentication scheme or sche
 
 ### Post-quantum runtime
 
-`HYBRID_PQ_V1` is an optional architecture/profile boundary. ML-DSA-65 runtime signing/verification is not part of the default tested stack. The tested path is classical AES-256-GCM + HMAC-SHA256, with ECDSA-P256 checkpoint support when a key is provisioned.
+`HYBRID_PQ_V1` is implemented and has an isolated real-runtime proof, but remains optional and inactive in the default stack. This repository proof does not validate production key custody, HSM integration, deployment hardening or a cryptographic certification process.
 
 ### TLS termination
 
@@ -178,7 +207,7 @@ Scripts exist with an explicit restore confirmation guard, but the final pre-dem
 
 ### Long-duration load benchmark
 
-The final audit intentionally avoids a long stress benchmark. Small load tooling is available, while correctness and deterministic acceptance are prioritized before the presentation.
+The final audit intentionally avoids a long stress benchmark. The bounded 100-item CI smoke and optional 1000-item local profile prove deterministic business outcomes, not production capacity or linear throughput scaling.
 
 ### Migration style debt
 
@@ -194,6 +223,6 @@ Before presenting, require all of the following:
 2. `docker compose ... up -d --build --wait` succeeds locally.
 3. `bash scripts/local_smoke.sh` prints `TRACE-Q local smoke: OK`.
 4. Run at least S03, S08, S17, S18, S19, S09 and S22 manually in Streamlit.
-5. Do not claim real vendor integration or verified ML-DSA runtime beyond the documented boundary.
+5. Do not claim real vendor integration, production PQ deployment validation or capacity results beyond the documented proof boundaries.
 
 For exact commands see `docs/LOCAL_RUNBOOK.md`. For module-by-module manual checks see `docs/MODULE_TESTING.md`.

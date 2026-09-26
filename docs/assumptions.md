@@ -12,7 +12,7 @@
 - Evidence invalidation and Blast Radius are implemented in the MVP, but Blast Radius remains proposal-first: it does not create defects or apply containment until the explicit approval workflow completes.
 - The HMAC_V1 demo transport is not an mTLS replacement.
 - Vendor KOMPAS/ERP/MES transports remain site-specific adapters because the case does not provide production endpoint/authentication specifications.
-- `HYBRID_PQ_V1` remains an optional profile boundary. The default tested path is classical AES-256-GCM/HMAC-SHA256 with ECDSA-P256 checkpoint support; ML-DSA-65 must not be claimed as runtime-verified unless the optional library and keys are actually installed and exercised.
+- `HYBRID_PQ_V1` is an implemented optional checkpoint profile using real ML-DSA-65 through `liboqs-python`; the isolated PQ proof installs and exercises it. The default stack remains classical and does not require the PQ runtime or keys. Repository proof is not production deployment, HSM, or key-ceremony validation.
 
 ## Verification boundary
 
