@@ -11,11 +11,18 @@ BASE_URL = os.getenv("TRACEQ_API_URL", "http://localhost:8080").rstrip("/")
 
 
 class APIError(RuntimeError):
-    def __init__(self, status_code: int, code: str, message: str) -> None:
+    def __init__(
+        self,
+        status_code: int,
+        code: str,
+        message: str,
+        details: list[dict[str, Any]] | None = None,
+    ) -> None:
         super().__init__(message)
         self.status_code = status_code
         self.code = code
         self.message = message
+        self.details = details or []
 
 
 def _parse(response: httpx.Response) -> Any:
@@ -25,7 +32,12 @@ def _parse(response: httpx.Response) -> Any:
         return response.json()
     try:
         error = response.json()["error"]
-        raise APIError(response.status_code, error.get("code", "API_ERROR"), error.get("message", "API error"))
+        raise APIError(
+            response.status_code,
+            error.get("code", "API_ERROR"),
+            error.get("message", "API error"),
+            error.get("details") if isinstance(error.get("details"), list) else None,
+        )
     except (ValueError, KeyError, TypeError):
         raise APIError(response.status_code, "API_ERROR", "Backend request failed")
 

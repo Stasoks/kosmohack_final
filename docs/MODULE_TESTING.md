@@ -2,7 +2,7 @@
 
 This document is for manual verification after the stack is running. For startup commands see `docs/LOCAL_RUNBOOK.md`.
 
-The fastest test surface is Streamlit -> **Scenario Runner**. Every S01-S25 bundle is also executed automatically by the PostgreSQL CI suite, but the UI lets you inspect the resulting state and explain it during the demo.
+The fastest test surface is Streamlit -> **Scenario Runner**. Every S01-S25 bundle is also executed automatically by the PostgreSQL CI suite, but the UI lets you inspect the resulting state and explain it during the demo. After a run, **Рассчитанное состояние системы** shows the actual persisted/derived result separately from the **Проверки acceptance-сценария** checklist.
 
 ## 1. Basic health and login
 
@@ -19,7 +19,7 @@ Expected:
 - UI opens without a backend error;
 - Overview is visible;
 - Scenario Runner is available;
-- logout removes the active session and returns to the login page.
+- logout removes the active session and authorized menu, then returns to a clean login page.
 
 Useful RBAC check: log in as `admin`. The administrator can manage users/integrations and inspect security, but does not receive the QC decision permission.
 
@@ -48,12 +48,12 @@ Run **S03**.
 Expected:
 
 - one NCR for `scratch_or_gouge`;
-- Birth Window status `BOUNDED`;
+- the UI names the Birth Window **Интервал возникновения локализован** (`BOUNDED` remains visible only in technical data);
 - last trusted GOOD = `EV-S03-004`;
 - first trusted DEFECT = `EV-S03-008`;
 - `RUN-S03-GRIND` is inside the interval;
-- machine warning is shown as contextual evidence;
-- `cause_status=not_established`.
+- machine warning is shown as **Контекст, не доказанная причина**;
+- the UI says **Причина не установлена** and does not assign an automatic cause.
 
 The important demo statement is: TRACE-Q localizes the interval in which the defect could have appeared. A machine warning inside the interval is context, not proof that the machine caused the defect.
 
@@ -63,7 +63,7 @@ Run **S02** or **S11**.
 
 Expected:
 
-- Birth Window is `LEFT_OPEN`;
+- the Birth Window is shown as **Левая граница неизвестна** (`LEFT_OPEN` in technical data);
 - no fabricated GOOD boundary;
 - S11 includes `NO_PREVIOUS_TRUSTED_INSPECTION`.
 
@@ -77,7 +77,7 @@ Run the following scenarios:
 | S10 | contradictory equivalent observations become `CONFLICTED` |
 | S13 | `impossible_to_assess` becomes `UNASSESSABLE` |
 
-For S10, neither conflicting observation may become a trusted GOOD or trusted DEFECT boundary.
+For S10, neither conflicting observation may become a trusted GOOD or trusted DEFECT boundary. The item history must show **Конфликт результатов контроля**, the participating event/source data that is available, and why neither result is a boundary.
 
 ## 5. Required checks and route gaps
 
@@ -142,7 +142,8 @@ Expected:
 - an older trusted observation becomes `INVALIDATED`;
 - v1 remains stored;
 - v2 is created;
-- the Birth Window widens after invalidation.
+- the Birth Window widens after invalidation;
+- the item history shows the preserved invalidated observation and explains the v1 → v2 transition.
 
 ## 8. Rework lifecycle
 
@@ -159,6 +160,8 @@ Expected:
 - NCR is closed with `resolution_type=rework`;
 - item disposition becomes `RELEASED`;
 - original defect occurrence remains in history.
+
+After the run, open **Решения QC → Все несоответствия** to inspect the completed NCR read-only. The item activity timeline must include the controller decision, linked rework start/finish, repeat inspection, verification and final release.
 
 ### Failed rework
 
@@ -183,6 +186,8 @@ Expected:
 - one `surface_crack`;
 - one `scratch_or_gouge`;
 - item count and defect occurrence count remain different concepts.
+
+In the item analysis, CP-POST-MILL coverage is displayed per relevant defect key: `scratch_or_gouge` as **Полное покрытие** (eligible for a GOOD boundary) and `surface_crack` as **Частичное покрытие** (not eligible for a GOOD boundary).
 
 Run **S25**.
 
@@ -331,6 +336,8 @@ Expected:
 - item-level QC continues;
 - NCR and Birth Window still work;
 - defect identity falls back to item level.
+
+The UI presents this as **Структура компонентов недоступна — Контроль продолжается на уровне изделия**, not as a system failure.
 
 The working MVP provider is JSON/snapshot based. The Windows/KOMPAS bridge remains an external vendor-specific boundary.
 

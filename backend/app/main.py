@@ -114,13 +114,26 @@ async def traceq_error_handler(request: Request, exc: TraceQError):
 
 
 @app.exception_handler(RequestValidationError)
-async def validation_error_handler(request: Request, _: RequestValidationError):
+async def validation_error_handler(request: Request, exc: RequestValidationError):
+    details = []
+    for error in exc.errors():
+        field = ".".join(
+            str(part) for part in error.get("loc", ()) if part not in {"body", "query", "path"}
+        )
+        details.append(
+            {
+                "field": field,
+                "type": error.get("type"),
+                "message": error.get("msg"),
+            }
+        )
     return JSONResponse(
         status_code=422,
         content={
             "error": {
                 "code": "REQUEST_VALIDATION_ERROR",
                 "message": "Request validation failed",
+                "details": details,
                 "request_id": getattr(request.state, "request_id", None),
             }
         },

@@ -68,6 +68,16 @@ def test_demo_vertical_slice_security_and_outbox() -> None:
         "FIRST_TRUSTED_DEFECT",
         "OPERATION_IN_WINDOW",
     }
+    timeline = client.get(
+        "/api/v1/items/ITEM-S03/timeline", headers=_headers(tokens["controller"])
+    )
+    assert timeline.status_code == 200, timeline.text
+    assert timeline.json()["events"]  # backward-compatible raw timeline remains available
+    assert {row["type"] for row in timeline.json()["activity"]} >= {
+        "item_registered",
+        "inspection_result",
+        "nonconformance_opened",
+    }
 
     ncrs = client.get("/api/v1/nonconformances", headers=_headers(tokens["controller"])).json()
     ncr_id = ncrs[0]["id"]
@@ -97,6 +107,11 @@ def test_demo_vertical_slice_security_and_outbox() -> None:
     assert decision.json()["outbox_state"] is None
     assert decision.json()["message_id"] is None
 
+    decided_timeline = client.get(
+        "/api/v1/items/ITEM-S03/timeline", headers=_headers(tokens["controller"])
+    ).json()
+    assert "controller_decision" in {row["type"] for row in decided_timeline["activity"]}
+
     with engine.connect() as connection:
         ciphertext = connection.scalar(
             text("SELECT payload_ciphertext FROM raw_events WHERE event_id='EV-S03-001'")
@@ -111,6 +126,57 @@ def test_demo_vertical_slice_security_and_outbox() -> None:
             connection.execute(
                 text("UPDATE raw_events SET event_type='tampered' WHERE event_id='EV-S03-001'")
             )
+
+
+def test_timeline_activity_includes_rework_and_verification_decisions() -> None:
+    client = _client()
+    controller = _login(client, "controller", "controller-demo")
+    headers = _headers(controller)
+    reset = client.post("/api/v1/demo/reset", headers=headers)
+    assert reset.status_code == 200, reset.text
+
+    scenario = client.post("/api/v1/demo/scenarios/S08/run", headers=headers)
+    assert scenario.status_code == 200, scenario.text
+    assert scenario.json()["passed"] is True
+
+    response = client.get("/api/v1/items/ITEM-S08/timeline", headers=headers)
+    assert response.status_code == 200, response.text
+    value = response.json()
+    assert value["events"]
+    activity_types = {row["type"] for row in value["activity"]}
+    assert {
+        "controller_decision",
+        "rework_started",
+        "rework_finished",
+        "rework_verification",
+        "final_disposition",
+    } <= activity_types
+
+
+def test_timeline_activity_exposes_effective_coverage_per_defect_key() -> None:
+    client = _client()
+    controller = _login(client, "controller", "controller-demo")
+    headers = _headers(controller)
+    reset = client.post("/api/v1/demo/reset", headers=headers)
+    assert reset.status_code == 200, reset.text
+
+    scenario = client.post("/api/v1/demo/scenarios/S12/run", headers=headers)
+    assert scenario.status_code == 200, scenario.text
+    assert scenario.json()["passed"] is True
+
+    response = client.get("/api/v1/items/ITEM-S12/timeline", headers=headers)
+    assert response.status_code == 200, response.text
+    first_inspection = next(
+        row for row in response.json()["activity"] if row["event_id"] == "EV-S12-002"
+    )
+    coverage = {
+        row["defect_type"]: row["coverage"]
+        for row in first_inspection["details"]["coverage"]
+    }
+    assert coverage == {
+        "scratch_or_gouge": "FULL",
+        "surface_crack": "PARTIAL",
+    }
 
 
 

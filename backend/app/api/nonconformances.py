@@ -125,6 +125,7 @@ def list_nonconformances(
             "closed_at": row.closed_at,
             "current_analysis_version": row.current_analysis_version,
             "resolution_type": row.resolution_type,
+            "resolved_at": row.resolved_at,
             "verification_status": row.verification_status,
         }
         for row in rows
@@ -167,8 +168,12 @@ def get_nonconformance(
         "cause_status": row.cause_status,
         "disposition": row.disposition,
         "containment": row.containment,
+        "opened_at": row.opened_at,
+        "closed_at": row.closed_at,
         "resolution_type": row.resolution_type,
+        "resolved_at": row.resolved_at,
         "verification_status": row.verification_status,
+        "current_analysis_version": row.current_analysis_version,
         "analysis_versions": [
             {
                 "id": version.id,
