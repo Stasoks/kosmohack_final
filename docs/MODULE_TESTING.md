@@ -47,7 +47,7 @@ Run **S03**.
 
 Expected:
 
-- one NCR for `surface_crack`;
+- one NCR for `scratch_or_gouge`;
 - Birth Window status `BOUNDED`;
 - last trusted GOOD = `EV-S03-004`;
 - first trusted DEFECT = `EV-S03-008`;

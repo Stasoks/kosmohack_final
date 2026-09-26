@@ -24,7 +24,7 @@ The review covered:
 - load/test helper scripts;
 - documentation claims versus implemented behavior.
 
-The final acceptance gate is GitHub Actions on PR #1. A revision is considered demo-ready only when all applicable jobs are green.
+GitHub Actions is configured as the final acceptance gate. This report describes the checks configured for the repository; it does not assert that the current HEAD has passed a new CI run after every change documented below.
 
 ## 2. P0/P1 issues found and fixed during hardening
 
@@ -40,6 +40,14 @@ Fixed by connecting ScenarioHarness V2 to the FastAPI demo endpoint and a Postgr
 
 Fixed. Repeat GOOD must be trusted and cover the original defect type/component scope. Item-level NCRs require item-wide component coverage rather than a check scoped only to one component.
 
+### Inspection capability was treated as a simple allow-list
+
+Fixed with per-defect/per-component `FULL`, `PARTIAL`, `NONE` and `TARGET_ONLY` capability. Effective coverage is the intersection of the configured RouteStep capability, the source-reported inspection scope and, for rework verification, the targeted NCR scope. `PARTIAL` remains usable as trusted context but cannot become a GOOD Birth Window boundary.
+
+### Conflict detection grouped unrelated observations too broadly
+
+Fixed. A conflict now requires the same item, logical inspection session and control point, equal source priority, overlapping component scope, overlapping defect type and incompatible outcomes. The fallback logical-session key includes item, control point, operation run and a 60-second bucket; observations for different defect types no longer conflict only because their top-level outcomes differ.
+
 ### Source line/station restrictions were too payload-dependent
 
 Fixed by resolving scope through Item, OperationRun, RouteStep, Station and Equipment context. Scoped sources fail closed when required context cannot be resolved.
@@ -47,6 +55,8 @@ Fixed by resolving scope through Item, OperationRun, RouteStep, Station and Equi
 ### Blast Radius approval stopped at proposal status
 
 Fixed by materializing immutable `ContainmentApplication` facts only after the required human approval count is reached. Proposal creation itself still creates no defect and applies no containment.
+
+The S18 scenario regression now derives automatic defect assignment from the persisted NCR count delta captured before and after Blast Radius analysis. An NCR that existed before the query is not attributed to Blast Radius.
 
 ### Audit chain fields existed without a complete write path
 
@@ -63,6 +73,10 @@ Fixed. Route JSON import is now a critical authenticated action, writes audit, a
 ### Load generator duplicated an envelope identifier in payload
 
 Fixed. `scripts/generate_events.py` now emits canonical item registration with `item_id` only in the event envelope.
+
+### Contract code generation did not include a TypeScript artifact or evolution proof
+
+Fixed. The canonical JSON Schema now deterministically generates Pydantic models, TypeScript interfaces and the registry. An isolated 1.1 demonstration schema preserves the production 1.0 contract and adds only optional `analyzer_version` to `inspection.result`; fixture-based compatibility, generated drift and stale-output detection are checked without advertising 1.1 runtime support.
 
 ### Scenario acceptance contained several hard-coded positive/negative flags
 
@@ -104,7 +118,8 @@ The CI gate contains three jobs.
 
 Checks:
 
-- deterministic JSON Schema -> Pydantic generation drift;
+- deterministic JSON Schema -> Pydantic/TypeScript/registry generation drift;
+- isolated contract-evolution generated artifacts, complete schema delta, 1.0 inspection-fixture compatibility and stale-output detection;
 - contract fixtures;
 - non-PostgreSQL unit/security tests;
 - ERP emulator tests;
@@ -167,11 +182,11 @@ The final audit intentionally avoids a long stress benchmark. Small load tooling
 
 ### Migration style debt
 
-Some early hackathon migrations use current SQLAlchemy metadata with `create_all(checkfirst=True)` to support fresh installs and the existing upgrade path. The current revision is tested from a clean database, but a long-lived production release train should replace that pattern with fully explicit historical migrations.
+Some early hackathon migrations use current SQLAlchemy metadata with `create_all(checkfirst=True)` to support fresh installs and the existing upgrade path. CI is configured to test a clean database; this local documentation update does not claim that PostgreSQL job was rerun. A long-lived production release train should replace that pattern with fully explicit historical migrations.
 
 ## 6. Demo readiness decision
 
-No known P0 blocker remains in the reviewed code after the fixes above.
+No code-level P0 blocker is currently identified in the reviewed scope. Demo readiness remains conditional on the checks below; this statement is not a substitute for a current CI run and manual verification.
 
 Before presenting, require all of the following:
 
