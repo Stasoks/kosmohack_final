@@ -129,6 +129,7 @@ services:
     environment:
       TRACEQ_API_URL: http://backend:8080
       DEMO_MODE: ${DEMO_MODE:-false}
+      PYTHONPATH: /app
     command: ["streamlit", "run", "streamlit_app/Home.py", "--server.address=0.0.0.0", "--server.port=8501", "--server.headless=true"]
     depends_on:
       backend:
