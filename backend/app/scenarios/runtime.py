@@ -3,13 +3,21 @@ from __future__ import annotations
 import copy
 import json
 import uuid
+from contextlib import contextmanager
 from datetime import datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, Iterator
 
 from pydantic import SecretStr
-from sqlalchemy import bindparam, create_engine, func, select, text
+from sqlalchemy import (
+    bindparam,
+    create_engine,
+    event as sqlalchemy_event,
+    func,
+    select,
+    text,
+)
 from sqlalchemy.orm import Session
 
 from backend.app.api.nonconformances import (
@@ -174,15 +182,34 @@ class ScenarioRuntime:
         base = self._last_event_at or utcnow()
         return base + timedelta(microseconds=self._action_offset)
 
-    def _stamp_decision(self, result: dict[str, Any], ncr: Nonconformance) -> None:
+    @contextmanager
+    def _decision_clock(self) -> Iterator[None]:
+        """Stamp a scenario decision before INSERT without mutating append-only history."""
+        action_at = self._next_action_at()
+
+        def stamp_new_decisions(
+            session: Session, _flush_context: Any, _instances: Any
+        ) -> None:
+            for value in session.new:
+                if isinstance(value, ControllerDecision):
+                    value.created_at = action_at
+
+        sqlalchemy_event.listen(self.db, "before_flush", stamp_new_decisions)
+        try:
+            yield
+        finally:
+            sqlalchemy_event.remove(self.db, "before_flush", stamp_new_decisions)
+
+    def _sync_decision_closure_times(
+        self, result: dict[str, Any], ncr: Nonconformance
+    ) -> None:
         decision_id = result.get("decision_id")
         if not decision_id:
             return
         decision = self.db.get(ControllerDecision, decision_id)
         if decision is None:
             return
-        action_at = self._next_action_at()
-        decision.created_at = action_at
+        action_at = decision.created_at
         if ncr.verification_decision_id == decision.id:
             if ncr.resolved_at is not None:
                 ncr.resolved_at = action_at
@@ -479,19 +506,23 @@ class ScenarioRuntime:
 
             result = None
             for ncr in ncrs:
-                result = decide_nonconformance(
-                    ncr.id,
-                    DecisionRequest(
-                        verdict="confirmed",
-                        disposition=disposition,
-                        containment="HOLD" if disposition == "REWORK_REQUIRED" else "NONE",
-                        reason=payload.get("reason") or "Scenario controller decision",
-                    ),
-                    self._request(action),
-                    principal,
-                    self.db,
-                )
-                self._stamp_decision(result, ncr)
+                with self._decision_clock():
+                    result = decide_nonconformance(
+                        ncr.id,
+                        DecisionRequest(
+                            verdict="confirmed",
+                            disposition=disposition,
+                            containment=(
+                                "HOLD" if disposition == "REWORK_REQUIRED" else "NONE"
+                            ),
+                            reason=payload.get("reason")
+                            or "Scenario controller decision",
+                        ),
+                        self._request(action),
+                        principal,
+                        self.db,
+                    )
+                self._sync_decision_closure_times(result, ncr)
             alias = payload.get("nonconformance_id")
             if alias and len(ncrs) == 1:
                 self.ncr_aliases[str(alias)] = ncrs[0].id
@@ -501,36 +532,43 @@ class ScenarioRuntime:
         if action in {"VERIFY_REWORK_AND_RELEASE", "VERIFY_REWORK"}:
             ncr = self._find_ncr(row)
             passed = action == "VERIFY_REWORK_AND_RELEASE"
-            result = verify_rework(
-                ncr.id,
-                ReworkVerificationRequest(
-                    passed=passed,
-                    reason=payload.get("reason")
-                    or ("Scenario repeat inspection passed" if passed else "Scenario repeat inspection failed"),
-                ),
-                self._request(action),
-                principal,
-                self.db,
-            )
-            self._stamp_decision(result, ncr)
+            with self._decision_clock():
+                result = verify_rework(
+                    ncr.id,
+                    ReworkVerificationRequest(
+                        passed=passed,
+                        reason=payload.get("reason")
+                        or (
+                            "Scenario repeat inspection passed"
+                            if passed
+                            else "Scenario repeat inspection failed"
+                        ),
+                    ),
+                    self._request(action),
+                    principal,
+                    self.db,
+                )
+            self._sync_decision_closure_times(result, ncr)
             self.action_results[action] = result["verification_status"]
             return result
 
         if action == "REJECT_NONCONFORMANCE":
             ncr = self._find_ncr(row)
-            result = decide_nonconformance(
-                ncr.id,
-                DecisionRequest(
-                    verdict="rejected",
-                    disposition="RELEASED",
-                    containment="NONE",
-                    reason=payload.get("reason") or "Scenario controller rejection",
-                ),
-                self._request(action),
-                principal,
-                self.db,
-            )
-            self._stamp_decision(result, ncr)
+            with self._decision_clock():
+                result = decide_nonconformance(
+                    ncr.id,
+                    DecisionRequest(
+                        verdict="rejected",
+                        disposition="RELEASED",
+                        containment="NONE",
+                        reason=payload.get("reason")
+                        or "Scenario controller rejection",
+                    ),
+                    self._request(action),
+                    principal,
+                    self.db,
+                )
+            self._sync_decision_closure_times(result, ncr)
             self.action_results[action] = "ALLOWED"
             return result
 

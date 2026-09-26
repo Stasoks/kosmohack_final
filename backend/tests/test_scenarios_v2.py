@@ -1,8 +1,13 @@
 from datetime import datetime, timezone
 from pathlib import Path
+from types import SimpleNamespace
+from uuid import UUID
 
 import pytest
+from sqlalchemy import create_engine, event
+from sqlalchemy.orm import Session
 
+from backend.app.persistence.models import ControllerDecision
 from backend.app.scenarios.harness import ScenarioBundle, compare_invariants
 from backend.app.scenarios.runtime import ScenarioRuntime, automatic_defect_assignment_detected
 
@@ -119,6 +124,51 @@ def test_scenario_action_clock_follows_last_fixture_event_deterministically() ->
     assert first == datetime(2026, 9, 25, 15, 52, 0, 1, tzinfo=timezone.utc)
     assert second == datetime(2026, 9, 25, 15, 52, 0, 2, tzinfo=timezone.utc)
     assert first < second < next_production_event
+
+
+def test_scenario_decision_clock_sets_timestamp_on_insert_without_update() -> None:
+    engine = create_engine("sqlite://")
+    ControllerDecision.__table__.create(engine)
+    statements: list[str] = []
+
+    def capture_statement(
+        _connection, _cursor, statement, _parameters, _context, _executemany
+    ) -> None:
+        statements.append(statement)
+
+    event.listen(engine, "before_cursor_execute", capture_statement)
+    with Session(engine, expire_on_commit=False) as db:
+        runtime = ScenarioRuntime.__new__(ScenarioRuntime)
+        runtime.db = db
+        runtime._last_event_at = datetime(2026, 9, 25, 15, 52, tzinfo=timezone.utc)
+        runtime._action_offset = 0
+        decision = ControllerDecision(
+            nonconformance_id=UUID(int=1),
+            user_id=UUID(int=2),
+            verdict="confirmed",
+            disposition="REWORK_REQUIRED",
+            containment="HOLD",
+            reason="Scenario controller decision",
+            analysis_version=1,
+        )
+
+        with runtime._decision_clock():
+            db.add(decision)
+            db.flush()
+        runtime._sync_decision_closure_times(
+            {"decision_id": decision.id},
+            SimpleNamespace(verification_decision_id=None),
+        )
+
+        assert decision.created_at == datetime(
+            2026, 9, 25, 15, 52, 0, 1, tzinfo=timezone.utc
+        )
+
+    assert any(statement.lstrip().upper().startswith("INSERT") for statement in statements)
+    assert not any(
+        statement.lstrip().upper().startswith("UPDATE CONTROLLER_DECISIONS")
+        for statement in statements
+    )
 
 
 @pytest.mark.postgres
