@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import csv
+import io
 import json
 from datetime import date, datetime, time, timedelta, timezone
+from html import escape
 from typing import Any, Iterable
 
 
@@ -83,27 +86,42 @@ EQUIPMENT_WARNINGS_CAPTION = (
 
 TIMELINE_CSS = """
 <style>
-.traceq-timeline {margin: .35rem 0 1rem 0;}
-.traceq-event {display:grid;grid-template-columns:5.8rem 1.4rem 1fr;min-height:4rem;}
-.traceq-time {color:inherit;opacity:.72;font-size:.82rem;padding-top:.15rem;text-align:right;}
+.traceq-timeline {margin:.75rem 0 1.25rem 0;max-width:72rem;}
+.traceq-event {display:grid;grid-template-columns:6rem 1.75rem minmax(0,1fr);min-height:4.8rem;}
+.traceq-time {
+  color:inherit;opacity:.72;font-size:.82rem;padding:.58rem .15rem 0 0;
+  text-align:right;cursor:help;font-variant-numeric:tabular-nums;
+}
 .traceq-rail {position:relative;display:flex;justify-content:center;color:inherit;}
 .traceq-rail:after {
-  content:"";position:absolute;top:1rem;bottom:-.25rem;width:2px;
-  background:currentColor;opacity:.28;
+  content:"";position:absolute;top:1.35rem;bottom:-.35rem;width:2px;
+  background:currentColor;opacity:.22;
 }
 .traceq-event:last-child .traceq-rail:after {display:none;}
 .traceq-dot {
-  z-index:1;width:.78rem;height:.78rem;border-radius:50%;margin-top:.3rem;
+  z-index:1;width:.78rem;height:.78rem;border-radius:50%;margin-top:.8rem;
   background:#2e90fa;border:2px solid var(--background-color, transparent);
   box-shadow:0 0 0 2px #2e90fa;
 }
 .traceq-event.warning .traceq-dot {background:#f79009;box-shadow:0 0 0 2px #f79009;}
 .traceq-event.critical .traceq-dot {background:#f04438;box-shadow:0 0 0 2px #f04438;}
 .traceq-event.action .traceq-dot {background:#9e77ed;box-shadow:0 0 0 2px #9e77ed;}
-.traceq-card {padding:0 0 .9rem .35rem;}
+.traceq-card {
+  margin:0 0 .8rem .2rem;padding:.72rem .9rem;border:1px solid currentColor;
+  border-radius:.65rem;color:inherit;background:rgba(46,144,250,.045);
+  border-color:rgba(46,144,250,.24);
+}
+.traceq-event.warning .traceq-card {background:rgba(247,144,9,.08);border-color:rgba(247,144,9,.38);}
+.traceq-event.critical .traceq-card {background:rgba(240,68,56,.08);border-color:rgba(240,68,56,.4);}
+.traceq-event.action .traceq-card {background:rgba(158,119,237,.09);border-color:rgba(158,119,237,.4);}
 .traceq-title {font-weight:650;color:inherit;line-height:1.35;}
-.traceq-lines {color:inherit;opacity:.76;font-size:.9rem;margin-top:.18rem;}
-.traceq-full-time {color:inherit;opacity:.62;font-size:.72rem;margin-top:.18rem;}
+.traceq-lines {color:inherit;opacity:.8;font-size:.9rem;margin-top:.28rem;line-height:1.42;}
+.traceq-full-time {color:inherit;opacity:.58;font-size:.72rem;margin-top:.35rem;}
+@media (max-width: 700px) {
+  .traceq-event {grid-template-columns:4.6rem 1.35rem minmax(0,1fr);}
+  .traceq-time {font-size:.75rem;}
+  .traceq-card {padding:.65rem .72rem;}
+}
 </style>
 """
 
@@ -858,11 +876,12 @@ def activity_presentation(
                 str(details.get("reason") or ""),
             ]
         )
+        tone = "action"
         if details.get("disposition") == "REWORK_REQUIRED":
             title = "Контролёр назначил доработку"
-            tone = "action"
     elif activity_type == "rework_verification":
         title = "Контролёр проверил результат доработки"
+        tone = "action"
         lines.extend(
             [
                 f"Верификация: {label(details.get('verification_status'))}",
@@ -872,6 +891,7 @@ def activity_presentation(
         )
     elif activity_type == "final_disposition":
         title = "Зафиксировано итоговое решение по изделию"
+        tone = "action"
         lines.append(label(details.get("disposition")))
     elif activity_type in {"operation_started", "operation_finished", "rework_started", "rework_finished"}:
         operation_id = details.get("operation_id")
@@ -885,8 +905,10 @@ def activity_presentation(
             title = f"Операция «{operation}» завершена"
         elif activity_type == "rework_started":
             title = "Доработка начата"
+            tone = "action"
         else:
             title = "Доработка завершена"
+            tone = "action"
     elif activity_type == "nonconformance_opened":
         title = f"Обнаружено несоответствие: {defect_label(details.get('defect_type'))}"
         lines.append("Требуется решение контролёра")
@@ -918,6 +940,165 @@ def activity_presentation(
         "source_id": row.get("source_id"),
         "nonconformance_id": row.get("nonconformance_id"),
     }
+
+
+def activity_detail_lines(row: dict[str, Any], shown: dict[str, Any]) -> list[str]:
+    """Return only user-facing details for a timeline event."""
+    lines = list(shown.get("lines") or [])
+    coverage_rows = (row.get("details") or {}).get("coverage") or []
+    for coverage in coverage_rows:
+        coverage_value = coverage.get("coverage")
+        line = (
+            f"Проверка для дефекта «{defect_label(coverage.get('defect_type'))}»: "
+            f"{label(coverage_value, domain='coverage')}."
+        )
+        if coverage_value not in {None, "", "FULL"}:
+            line += f" {coverage_explanation(coverage_value)}"
+        lines.append(line)
+    return [str(line) for line in lines if line and line != "—"]
+
+
+def timeline_html(
+    activity: Iterable[dict[str, Any]],
+    operation_names: dict[str, str] | None = None,
+) -> str:
+    """Build inert HTML for st.html; technical identifiers stay out of the cards."""
+    events: list[str] = []
+    for row in activity:
+        shown = activity_presentation(row, operation_names)
+        line_blocks = "".join(
+            f"<div>{escape(line)}</div>"
+            for line in activity_detail_lines(row, shown)
+        )
+        lines_html = (
+            f'<div class="traceq-lines">{line_blocks}</div>' if line_blocks else ""
+        )
+        events.append(
+            '<div class="traceq-event {tone}">'
+            '<time class="traceq-time" datetime="{machine_time}" title="{full_time}">{short_time}</time>'
+            '<div class="traceq-rail" aria-hidden="true"><span class="traceq-dot"></span></div>'
+            '<div class="traceq-card">'
+            '<div class="traceq-title">{title}</div>{lines}'
+            '</div></div>'.format(
+                tone=escape(str(shown["tone"])),
+                machine_time=escape(str(row.get("occurred_at") or "")),
+                full_time=escape(str(shown["time"])),
+                short_time=escape(str(shown["short_time"])),
+                title=escape(str(shown["title"])),
+                lines=lines_html,
+            )
+        )
+    return '<div class="traceq-timeline">' + "".join(events) + "</div>"
+
+
+def timeline_export_rows(
+    activity: Iterable[dict[str, Any]],
+    operation_names: dict[str, str] | None = None,
+) -> list[dict[str, str]]:
+    importance = {
+        "normal": "Обычное событие",
+        "warning": "Обратите внимание",
+        "action": "Решение или действие",
+        "critical": "Требует внимания",
+    }
+    rows: list[dict[str, str]] = []
+    for row in activity:
+        shown = activity_presentation(row, operation_names)
+        rows.append(
+            {
+                "Дата и время": str(shown["time"]),
+                "Событие": str(shown["title"]),
+                "Подробности": " ".join(activity_detail_lines(row, shown)) or "—",
+                "Важность": importance.get(str(shown["tone"]), "Обычное событие"),
+            }
+        )
+    return rows
+
+
+def timeline_csv(rows: Iterable[dict[str, str]]) -> bytes:
+    columns = ["Дата и время", "Событие", "Подробности", "Важность"]
+    output = io.StringIO(newline="")
+    writer = csv.DictWriter(output, fieldnames=columns, extrasaction="ignore")
+    writer.writeheader()
+    writer.writerows(rows)
+    return ("\ufeff" + output.getvalue()).encode("utf-8")
+
+
+def analysis_change_reason(reason: Any) -> str:
+    raw = str(reason or "").lower()
+    if not raw or "initial" in raw or "created" in raw:
+        return "Первичный расчёт по доступным данным"
+    if "invalid" in raw or "device" in raw or "calibr" in raw:
+        return "Исключены результаты недостоверного контрольного устройства"
+    if "late" in raw or "delayed" in raw:
+        return "Получено событие, которое пришло с задержкой"
+    if "rebuild" in raw or "recalcul" in raw or "projection" in raw:
+        return "История пересчитана после обновления данных"
+    return "Расчёт обновлён после появления новых данных"
+
+
+def analysis_evidence_rows(
+    evidence: Iterable[dict[str, Any]],
+    operation_names: dict[str, str] | None = None,
+) -> list[dict[str, str]]:
+    role_labels = {
+        "BOUNDARY": "Граница интервала",
+        "CONTEXT": "Событие внутри интервала",
+        "LIMITATION": "Ограничение данных",
+    }
+    rows: list[dict[str, str]] = []
+    for evidence_row in evidence:
+        kind = str(evidence_row.get("type") or "")
+        details = evidence_row.get("details") or {}
+        shown = evidence_presentation(evidence_row)
+        event_name = shown["title"]
+        if kind == "OPERATION_IN_WINDOW":
+            operation_id = details.get("operation_id")
+            operation_name = details.get("operation_name")
+            if not operation_name and operation_names and operation_id is not None:
+                operation_name = operation_names.get(str(operation_id))
+            event_name = f"Операция «{operation_label(operation_id, operation_name)}»"
+        elif kind == "MACHINE_WARNING":
+            event_name = f"Предупреждение оборудования: {equipment_issue_label(details.get('state'))}"
+        elif kind == "OPERATOR_ACTION":
+            event_name = "Зафиксировано действие оператора"
+
+        explanation = shown["note"] or "Используется при определении границ интервала"
+        coverage = evidence_row.get("coverage")
+        if coverage:
+            explanation = (
+                f"{explanation}. {label(coverage, domain='coverage')}: "
+                f"{coverage_explanation(coverage)}"
+            )
+        observation = evidence_row.get("observation") or {}
+        observation_labels = [
+            label(observation.get("inspection_result")),
+            label(observation.get("trust_status")),
+        ]
+        observation_text = ", ".join(value for value in observation_labels if value != "—")
+        if observation_text:
+            explanation = f"{explanation}. {observation_text}"
+        rows.append(
+            {
+                "Роль": role_labels.get(str(evidence_row.get("role") or ""), "Ограничение данных"),
+                "Время": shown["time"],
+                "Событие": event_name,
+                "Что это значит": explanation,
+            }
+        )
+    return rows
+
+
+def analysis_history_rows(versions: Iterable[dict[str, Any]]) -> list[dict[str, str]]:
+    return [
+        {
+            "Версия": str(version.get("version") or "—"),
+            "Когда рассчитано": format_timestamp(version.get("created_at")),
+            "Результат": label(version.get("status")),
+            "Почему изменилось": analysis_change_reason(version.get("reason")),
+        }
+        for version in versions
+    ]
 
 
 def split_nonconformances(

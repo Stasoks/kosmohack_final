@@ -13,6 +13,8 @@ from streamlit_app.ui.presentation import (
     EQUIPMENT_WARNINGS_CAPTION,
     EQUIPMENT_WARNINGS_TITLE,
     TIMELINE_CSS,
+    analysis_evidence_rows,
+    analysis_history_rows,
     activity_presentation,
     api_error_message,
     birth_window_presentation,
@@ -42,6 +44,9 @@ from streamlit_app.ui.presentation import (
     scenario_title,
     split_nonconformances,
     structure_notice,
+    timeline_csv,
+    timeline_export_rows,
+    timeline_html,
     utc_iso,
 )
 
@@ -181,6 +186,109 @@ def test_timeline_uses_operation_name_from_the_items_pinned_revision() -> None:
     assert operation_names == {"OP-CUSTOM": "Лазерная сварка"}
     assert shown["title"] == "Операция «Лазерная сварка» начата"
     assert "Роботизированная" not in shown["title"]
+
+
+def test_timeline_html_renders_human_cards_without_technical_ids() -> None:
+    activity = [
+        {
+            "type": "operation_started",
+            "occurred_at": "2026-09-26T11:42:00Z",
+            "event_id": "EV-TECH-1",
+            "source_id": "MES-01",
+            "details": {
+                "operation_id": "OP-CUSTOM",
+                "operation_run_id": "RUN-SIM-1",
+            },
+        },
+        {
+            "type": "controller_decision",
+            "occurred_at": "2026-09-26T11:50:00Z",
+            "details": {
+                "verdict": "confirmed",
+                "disposition": "REWORK_REQUIRED",
+                "reason": "Нужна доработка поверхности",
+            },
+        },
+    ]
+
+    html = timeline_html(activity, {"OP-CUSTOM": "Лазерная сварка"})
+
+    assert '<div class="traceq-timeline">' in html
+    assert '<div class="traceq-event action">' in html
+    assert "Операция «Лазерная сварка» начата" in html
+    assert 'title="26.09.2026 11:42:00 UTC"' in html
+    assert "EV-TECH-1" not in html
+    assert "MES-01" not in html
+    assert "RUN-SIM-1" not in html
+
+
+def test_timeline_csv_is_a_human_readable_excel_compatible_export() -> None:
+    rows = timeline_export_rows(
+        [
+            {
+                "type": "operation_finished",
+                "occurred_at": "2026-09-26T11:43:00Z",
+                "event_id": "EV-TECH-2",
+                "details": {
+                    "operation_id": "OP-MILL",
+                    "operation_run_id": "RUN-SIM-2",
+                },
+            }
+        ]
+    )
+    exported = timeline_csv(rows)
+    decoded = exported.decode("utf-8")
+
+    assert exported.startswith(b"\xef\xbb\xbf")
+    assert "Дата и время,Событие,Подробности,Важность" in decoded
+    assert "Операция «Фрезерование» завершена" in decoded
+    assert "EV-TECH-2" not in decoded
+    assert "RUN-SIM-2" not in decoded
+
+
+def test_analysis_tables_explain_evidence_without_raw_ids() -> None:
+    evidence = [
+        {
+            "type": "OPERATION_IN_WINDOW",
+            "role": "CONTEXT",
+            "source_event_id": "EV-OP-1",
+            "occurred_at": "2026-09-26T11:45:00Z",
+            "details": {
+                "operation_id": "OP-CUSTOM",
+                "operation_run_id": "RUN-RAW-1",
+            },
+        },
+        {
+            "type": "MACHINE_WARNING",
+            "role": "CONTEXT",
+            "source_event_id": "EV-MACHINE-1",
+            "occurred_at": "2026-09-26T11:46:00Z",
+            "details": {"state": "SIM_VIBRATION_HIGH", "equipment_id": "CNC-04"},
+        },
+    ]
+
+    rows = analysis_evidence_rows(evidence, {"OP-CUSTOM": "Лазерная сварка"})
+    history = analysis_history_rows(
+        [
+            {
+                "version": 2,
+                "status": "BOUNDED",
+                "created_at": "2026-09-26T11:52:00Z",
+                "reason": "late_event_recalculation",
+            }
+        ]
+    )
+    rendered = str(rows)
+
+    assert rows[0]["Событие"] == "Операция «Лазерная сварка»"
+    assert rows[1]["Событие"] == "Предупреждение оборудования: Повышенная вибрация"
+    assert "Контекст, не доказанная причина" in rows[1]["Что это значит"]
+    assert "EV-OP-1" not in rendered
+    assert "RUN-RAW-1" not in rendered
+    assert "CNC-04" not in rendered
+    assert history[0]["Почему изменилось"] == (
+        "Получено событие, которое пришло с задержкой"
+    )
 
 
 def test_equipment_warning_copy_does_not_claim_a_proven_fault() -> None:

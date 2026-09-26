@@ -3,7 +3,6 @@ from __future__ import annotations
 import json
 from datetime import datetime, timedelta, timezone
 from functools import wraps
-from html import escape
 from typing import Callable
 
 import streamlit as st
@@ -14,11 +13,12 @@ from streamlit_app.ui.presentation import (
     EQUIPMENT_WARNINGS_CAPTION,
     EQUIPMENT_WARNINGS_TITLE,
     TIMELINE_CSS,
+    analysis_evidence_rows,
+    analysis_history_rows,
     activity_presentation,
     alert_explanation,
     api_error_message,
     birth_window_presentation,
-    coverage_explanation,
     cause_chart_rows,
     control_device_label,
     control_device_invalidation_payload,
@@ -30,15 +30,12 @@ from streamlit_app.ui.presentation import (
     draft_revision_label,
     equipment_issue_label,
     equipment_issue_suggestion,
-    evidence_groups,
-    evidence_presentation,
     format_timestamp,
     is_actionable_nonconformance,
     is_completed_nonconformance,
     item_table_rows,
     label,
     nonconformance_table_rows,
-    operation_label,
     pinned_operation_names,
     percentage_label,
     period_validation_error,
@@ -52,6 +49,9 @@ from streamlit_app.ui.presentation import (
     simulator_feed_message,
     split_nonconformances,
     structure_notice,
+    timeline_csv,
+    timeline_export_rows,
+    timeline_html,
     utc_iso,
 )
 
@@ -293,36 +293,45 @@ def timeline() -> None:
     activity = timeline_value.get("activity") or []
     if not activity:
         st.info("Для изделия пока нет записей в истории.")
-    st.markdown(TIMELINE_CSS, unsafe_allow_html=True)
+        return
+
+    st.caption(
+        "Слева показано время события. Наведите на него, чтобы увидеть полную дату. "
+        "Оранжевые карточки отмечают предупреждения, фиолетовые — решения и действия, "
+        "красные — события, требующие внимания."
+    )
+    export_rows = timeline_export_rows(activity, operation_names)
+    safe_item_id = "".join(
+        character if character.isalnum() or character in "-_" else "_"
+        for character in str(item_id)
+    )
+    download_columns = st.columns(2)
+    download_columns[0].download_button(
+        "Скачать понятную историю (CSV)",
+        data=timeline_csv(export_rows),
+        file_name=f"history-{safe_item_id}.csv",
+        mime="text/csv; charset=utf-8",
+        use_container_width=True,
+        key=f"history_csv_{safe_item_id}",
+    )
+    download_columns[1].download_button(
+        "Скачать техническую историю (JSON)",
+        data=json.dumps(
+            {"item": item, "timeline": timeline_value, "analyses": analyses},
+            ensure_ascii=False,
+            indent=2,
+            default=str,
+        ).encode("utf-8"),
+        file_name=f"history-{safe_item_id}-technical.json",
+        mime="application/json",
+        use_container_width=True,
+        key=f"history_json_{safe_item_id}",
+    )
+    st.html(TIMELINE_CSS + timeline_html(activity, operation_names))
+
     technical_activity = []
-    timeline_events = []
     for row in activity:
         shown = activity_presentation(row, operation_names)
-        lines = list(shown["lines"])
-        coverage_rows = (row.get("details") or {}).get("coverage") or []
-        for coverage in coverage_rows:
-            lines.append(
-                f"{defect_label(coverage.get('defect_type'))}: "
-                f"{label(coverage.get('coverage'), domain='coverage')} — "
-                f"{coverage_explanation(coverage.get('coverage'))}"
-            )
-        lines_html = "<br>".join(escape(str(value)) for value in lines if value)
-        lines_block = (
-            f'<div class="traceq-lines">{lines_html}</div>' if lines_html else ""
-        )
-        timeline_events.append(
-            f"""
-            <div class="traceq-event {escape(shown['tone'])}">
-              <div class="traceq-time" title="{escape(shown['time'])}">{escape(shown['short_time'])}</div>
-              <div class="traceq-rail"><span class="traceq-dot"></span></div>
-              <div class="traceq-card">
-                <div class="traceq-title">{escape(shown['title'])}</div>
-                {lines_block}
-                <div class="traceq-full-time">{escape(shown['time'])}</div>
-              </div>
-            </div>
-            """
-        )
         technical_activity.append(
             {
                 "Время": shown["time"],
@@ -333,98 +342,110 @@ def timeline() -> None:
                 "details": row.get("details"),
             }
         )
-    if timeline_events:
-        st.markdown(
-            '<div class="traceq-timeline">'
-            + "".join(timeline_events)
-            + "</div>",
-            unsafe_allow_html=True,
-        )
 
     with st.expander("Технические сведения истории"):
         st.dataframe(technical_activity, use_container_width=True, hide_index=True)
-        st.dataframe(timeline_value["events"], use_container_width=True, hide_index=True)
+        raw_events = timeline_value.get("events") or []
+        if raw_events:
+            st.dataframe(raw_events, use_container_width=True, hide_index=True)
 
-    st.subheader("Интервалы возникновения дефектов")
+    st.subheader("Когда мог возникнуть дефект")
+    st.caption(
+        "Здесь показан возможный интервал появления дефекта по данным проверок. "
+        "События внутри интервала помогают восстановить картину, но сами по себе "
+        "не доказывают причину дефекта."
+    )
     if not analyses:
-        st.info("Для изделия нет анализа несоответствий.")
+        st.info("У изделия нет дефектов, для которых нужно рассчитывать интервал.")
     for analysis in analyses:
-        with st.expander(
-            f"{defect_label(analysis['defect_type'])} · {label(analysis['cause_status'])}",
-            expanded=True,
-        ):
-            st.info(
-                "События внутри интервала являются контекстом. "
-                "TRACE-Q не назначает причину автоматически."
+        versions = analysis.get("versions") or []
+        if not versions:
+            continue
+        current = versions[-1]
+        summary = birth_window_presentation(current)
+        evidence_rows = analysis_evidence_rows(
+            current.get("evidence") or [], operation_names
+        )
+        with st.container(border=True):
+            st.markdown(f"### {defect_label(analysis.get('defect_type'))}")
+            st.caption(
+                f"Статус причины: {label(analysis.get('cause_status'))}. "
+                "Причину подтверждает специалист; система её не назначает автоматически."
             )
-            for index, version in enumerate(analysis["versions"]):
-                if index:
-                    reason = version.get("reason") or "пересчёт производных данных"
-                    if "invalid" in reason.lower():
-                        reason = "инвалидация контрольного устройства"
-                    st.markdown(f"↓ **Почему изменилось:** {reason}")
-                summary = birth_window_presentation(version)
-                st.markdown(
-                    f"**Версия анализа {version['version']} · {summary['title']}**"
-                )
-                st.write(summary["explanation"])
-                boundaries = st.columns(2)
-                if summary["last_good"]:
-                    boundaries[0].markdown("**Последняя достоверная проверка без дефекта**")
-                    boundaries[0].write(format_timestamp(summary["last_good"].get("occurred_at")))
-                else:
-                    boundaries[0].markdown("**Последняя достоверная проверка без дефекта**")
-                    boundaries[0].write("Отсутствует")
-                boundaries[1].markdown("**Первая достоверная фиксация дефекта**")
-                boundaries[1].write(
-                    format_timestamp(
-                        (summary["first_defect"] or {}).get("occurred_at")
-                        or version.get("right_boundary_at")
-                    )
-                )
-                if summary["operations"]:
-                    st.markdown("**Операции внутри интервала**")
-                    for operation in summary["operations"]:
-                        details = operation.get("details") or {}
-                        st.write(
-                            f"{format_timestamp(operation.get('occurred_at'))} — "
-                            f"{operation_label(details.get('operation_id'), details.get('operation_name'))}"
-                        )
 
-                for group_name, evidence in evidence_groups(version["evidence"]).items():
-                    if not evidence:
-                        continue
-                    st.markdown(f"#### {group_name}")
-                    for evidence_row in evidence:
-                        shown = evidence_presentation(evidence_row)
-                        if evidence_row.get("type") == "CONFLICTING_OBSERVATION":
-                            st.warning(f"**{shown['title']}** — {shown['note']}")
-                        elif evidence_row.get("type") == "DEVICE_VALIDITY":
-                            st.warning(f"**{shown['title']}** — {shown['note']}")
-                        else:
-                            st.markdown(f"**{shown['title']}**")
-                            if shown["note"]:
-                                st.caption(shown["note"])
-                        st.write(shown["time"])
-                        coverage = evidence_row.get("coverage")
-                        if coverage:
-                            st.write(
-                                f"Покрытие: **{label(coverage, domain='coverage')}** — "
-                                f"{coverage_explanation(coverage)}"
-                            )
-                        observation = evidence_row.get("observation") or {}
-                        if observation:
-                            st.caption(
-                                " · ".join(
-                                    str(value)
-                                    for value in (
-                                        label(observation.get("inspection_result")),
-                                        label(observation.get("trust_status")),
-                                    )
-                                    if value
-                                )
-                            )
-                technical_data(version, "Технические данные AnalysisVersion")
+            if current.get("status") == "BOUNDED":
+                st.success(f"**{summary['title']}.** {summary['explanation']}")
+            else:
+                st.warning(f"**{summary['title']}.** {summary['explanation']}")
+
+            boundaries = st.columns(2)
+            boundaries[0].markdown("**После этой проверки дефекта ещё не было**")
+            boundaries[0].write(
+                format_timestamp(
+                    (summary["last_good"] or {}).get("occurred_at")
+                    or current.get("left_boundary_at")
+                )
+                if summary["last_good"] or current.get("left_boundary_at")
+                else "Надёжной предыдущей проверки нет"
+            )
+            boundaries[1].markdown("**К этому моменту дефект уже обнаружен**")
+            boundaries[1].write(
+                format_timestamp(
+                    (summary["first_defect"] or {}).get("occurred_at")
+                    or current.get("right_boundary_at")
+                )
+            )
+
+            context_rows = [
+                row
+                for row in evidence_rows
+                if row["Роль"] == "Событие внутри интервала"
+            ]
+            if context_rows:
+                st.markdown("**Что происходило в этом интервале**")
+                st.dataframe(
+                    [
+                        {
+                            "Время": row["Время"],
+                            "Событие": row["Событие"],
+                            "Пояснение": row["Что это значит"],
+                        }
+                        for row in context_rows
+                    ],
+                    use_container_width=True,
+                    hide_index=True,
+                )
+            else:
+                st.info("Между границами нет дополнительных производственных событий.")
+
+            limitation_rows = [
+                row for row in evidence_rows if row["Роль"] == "Ограничение данных"
+            ]
+            if limitation_rows:
+                st.warning(
+                    "Есть ограничения данных. Они учтены в расчёте и могут делать "
+                    "интервал менее точным."
+                )
+                st.dataframe(
+                    limitation_rows,
+                    use_container_width=True,
+                    hide_index=True,
+                )
+
+            with st.expander("Почему система выбрала этот интервал"):
+                st.dataframe(
+                    evidence_rows,
+                    use_container_width=True,
+                    hide_index=True,
+                )
+            if len(versions) > 1:
+                with st.expander("Как менялся расчёт"):
+                    st.dataframe(
+                        analysis_history_rows(versions),
+                        use_container_width=True,
+                        hide_index=True,
+                    )
+            technical_data(analysis, "Технические данные расчёта")
 
 
 def analytics() -> None:
