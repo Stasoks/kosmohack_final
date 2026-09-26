@@ -34,6 +34,7 @@ SERVICE_NAMES = (
     "erp-emulator",
     "factory-simulator",
 )
+ALEMBIC_CURRENT_SHELL = 'MIGRATION_DATABASE_URL="$DATABASE_URL" alembic current'
 REQUIRED_VAR_PATTERN = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*):\?[^}]*}")
 
 
@@ -397,7 +398,15 @@ def run_live(
 
     try:
         current = runner(
-            [*compose, "exec", "-T", "backend", "alembic", "current"],
+            [
+                *compose,
+                "exec",
+                "-T",
+                "backend",
+                "sh",
+                "-c",
+                ALEMBIC_CURRENT_SHELL,
+            ],
             cwd=root,
             capture_output=True,
             text=True,

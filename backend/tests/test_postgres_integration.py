@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import uuid
 
 import pytest
 from fastapi.testclient import TestClient
@@ -293,7 +294,7 @@ def test_route_import_activation_supersedes_previous_revision() -> None:
     client = _client()
     technologist = _login(client, "technologist", "technologist-demo")
     headers = _headers(technologist)
-    route_code = "AUDIT-ROUTE-IMPORT"
+    route_code = f"AUDIT-ROUTE-IMPORT-{uuid.uuid4().hex[:12]}"
 
     first = client.post(
         "/api/v1/routes/import",

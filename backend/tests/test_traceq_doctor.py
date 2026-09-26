@@ -191,3 +191,6 @@ def test_alembic_current_must_equal_heads() -> None:
     assert doctor.alembic_revision_check(
         "20260926_0004\n", "20260926_0005 (head)\n"
     ).status == "FAIL"
+    assert doctor.ALEMBIC_CURRENT_SHELL == (
+        'MIGRATION_DATABASE_URL="$DATABASE_URL" alembic current'
+    )
