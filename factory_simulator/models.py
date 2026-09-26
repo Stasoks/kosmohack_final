@@ -85,6 +85,7 @@ class SimulationSession(BaseModel):
     event_counter: int = 0
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    last_occurred_at: datetime | None = Field(default=None, exclude=True)
     last_error: str | None = None
     feed: list[FeedEntry] = Field(default_factory=list)
 

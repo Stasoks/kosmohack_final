@@ -10,6 +10,9 @@ from streamlit_app.api_client import client
 from streamlit_app.ui import views
 from streamlit_app.ui.navigation import authorized_page_specs
 from streamlit_app.ui.presentation import (
+    EQUIPMENT_WARNINGS_CAPTION,
+    EQUIPMENT_WARNINGS_TITLE,
+    TIMELINE_CSS,
     activity_presentation,
     api_error_message,
     birth_window_presentation,
@@ -22,13 +25,16 @@ from streamlit_app.ui.presentation import (
     decision_validation_error,
     detection_chart_rows,
     duration_label,
+    draft_revision_label,
     equipment_issue_suggestion,
     evidence_groups,
     evidence_presentation,
     alert_explanation,
     label,
     operation_label,
+    pinned_operation_names,
     period_validation_error,
+    profile_header_label,
     route_name_label,
     route_revision_label,
     scenario_acceptance_checks,
@@ -100,6 +106,90 @@ def test_defect_operation_and_route_labels_hide_known_technical_codes() -> None:
     )
     assert label(None) == "—"
     assert "None" not in duration_label(None)
+
+
+def test_header_roles_and_draft_revision_are_human_readable() -> None:
+    assert profile_header_label(
+        {"username": "stas", "roles": ["technologist"]}
+    ) == "stas · Технолог"
+    assert profile_header_label(
+        {"username": "controller", "roles": ["controller"]}
+    ) == "controller · Контролёр качества"
+    assert profile_header_label(
+        {"username": "admin", "roles": ["admin"]}
+    ) == "admin · Администратор"
+    assert draft_revision_label(
+        {"id": "fbc5e52a-9192-4d28-ac5e-a95907ab6207", "revision": 3}
+    ) == "Версия 3 · Черновик"
+
+
+def test_timeline_css_is_theme_safe() -> None:
+    normalized = TIMELINE_CSS.lower().replace(" ", "")
+
+    assert "color:inherit" in normalized
+    assert "background:currentcolor" in normalized
+    assert "var(--background-color" in normalized
+    for hardcoded in ("#101828", "#475467", "#667085"):
+        assert hardcoded not in normalized
+
+
+def test_timeline_uses_operation_name_from_the_items_pinned_revision() -> None:
+    routes = [
+        {
+            "code": "ROUTE-X",
+            "active_revision_id": "revision-2",
+            "revisions": [
+                {
+                    "id": "revision-1",
+                    "revision": 1,
+                    "steps": [
+                        {
+                            "operation_id": "OP-CUSTOM",
+                            "operation_name": "Лазерная сварка",
+                        }
+                    ],
+                },
+                {
+                    "id": "revision-2",
+                    "revision": 2,
+                    "steps": [
+                        {
+                            "operation_id": "OP-CUSTOM",
+                            "operation_name": "Роботизированная сварка",
+                        }
+                    ],
+                },
+            ],
+        }
+    ]
+    item = {
+        "route_code": "ROUTE-X",
+        "route_revision_id": "revision-1",
+        "route_revision": 1,
+    }
+
+    operation_names = pinned_operation_names(item, routes)
+    shown = activity_presentation(
+        {
+            "type": "operation_started",
+            "occurred_at": "2026-09-26T11:42:00Z",
+            "details": {"operation_id": "OP-CUSTOM"},
+        },
+        operation_names,
+    )
+
+    assert operation_names == {"OP-CUSTOM": "Лазерная сварка"}
+    assert shown["title"] == "Операция «Лазерная сварка» начата"
+    assert "Роботизированная" not in shown["title"]
+
+
+def test_equipment_warning_copy_does_not_claim_a_proven_fault() -> None:
+    assert EQUIPMENT_WARNINGS_TITLE == "Недавние предупреждения оборудования"
+    assert EQUIPMENT_WARNINGS_CAPTION == (
+        "Предупреждение само по себе не доказывает неисправность и не означает "
+        "наличие дефекта на изделиях."
+    )
+    assert "требующие анализа" not in EQUIPMENT_WARNINGS_TITLE.lower()
 
 
 def test_date_time_helpers_produce_utc_iso_and_human_validation() -> None:

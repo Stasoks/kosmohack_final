@@ -11,6 +11,9 @@ import streamlit as st
 from streamlit_app.api_client.client import APIError, logout, request
 from streamlit_app.api_client.simulator import simulator_request
 from streamlit_app.ui.presentation import (
+    EQUIPMENT_WARNINGS_CAPTION,
+    EQUIPMENT_WARNINGS_TITLE,
+    TIMELINE_CSS,
     activity_presentation,
     alert_explanation,
     api_error_message,
@@ -24,6 +27,7 @@ from streamlit_app.ui.presentation import (
     decision_validation_error,
     detection_chart_rows,
     duration_label,
+    draft_revision_label,
     equipment_issue_label,
     equipment_issue_suggestion,
     evidence_groups,
@@ -35,8 +39,10 @@ from streamlit_app.ui.presentation import (
     label,
     nonconformance_table_rows,
     operation_label,
+    pinned_operation_names,
     percentage_label,
     period_validation_error,
+    profile_header_label,
     reason_validation_error,
     route_name_label,
     route_revision_label,
@@ -68,7 +74,7 @@ def header(title: str) -> None:
     profile = st.session_state.profile
     left, right = st.columns([5, 1])
     left.title(title)
-    left.caption(f"{profile['username']} · {', '.join(profile['roles'])}")
+    left.caption(profile_header_label(profile))
     if right.button("Выйти", use_container_width=True):
         logout()
         st.rerun()
@@ -269,6 +275,7 @@ def timeline() -> None:
     route = next(
         (row for row in routes if row.get("code") == item.get("route_code")), None
     )
+    operation_names = pinned_operation_names(item, routes)
     cols = st.columns(4)
     cols[0].metric("Статус изделия", label(item.get("status")))
     cols[1].metric(
@@ -286,31 +293,11 @@ def timeline() -> None:
     activity = timeline_value.get("activity") or []
     if not activity:
         st.info("Для изделия пока нет записей в истории.")
-    st.markdown(
-        """
-        <style>
-        .traceq-timeline {margin: .35rem 0 1rem 0;}
-        .traceq-event {display:grid;grid-template-columns:5.8rem 1.4rem 1fr;min-height:4rem;}
-        .traceq-time {color:#667085;font-size:.82rem;padding-top:.15rem;text-align:right;}
-        .traceq-rail {position:relative;display:flex;justify-content:center;}
-        .traceq-rail:after {content:"";position:absolute;top:1rem;bottom:-.25rem;width:2px;background:#d0d5dd;}
-        .traceq-event:last-child .traceq-rail:after {display:none;}
-        .traceq-dot {z-index:1;width:.78rem;height:.78rem;border-radius:50%;margin-top:.3rem;background:#2878bd;border:2px solid white;box-shadow:0 0 0 2px #2878bd;}
-        .traceq-event.warning .traceq-dot {background:#f79009;box-shadow:0 0 0 2px #f79009;}
-        .traceq-event.critical .traceq-dot {background:#d92d20;box-shadow:0 0 0 2px #d92d20;}
-        .traceq-event.action .traceq-dot {background:#7f56d9;box-shadow:0 0 0 2px #7f56d9;}
-        .traceq-card {padding:0 0 .9rem .35rem;}
-        .traceq-title {font-weight:650;color:#101828;line-height:1.35;}
-        .traceq-lines {color:#475467;font-size:.9rem;margin-top:.18rem;}
-        .traceq-full-time {color:#98a2b3;font-size:.72rem;margin-top:.18rem;}
-        </style>
-        """,
-        unsafe_allow_html=True,
-    )
+    st.markdown(TIMELINE_CSS, unsafe_allow_html=True)
     technical_activity = []
     timeline_events = []
     for row in activity:
-        shown = activity_presentation(row)
+        shown = activity_presentation(row, operation_names)
         lines = list(shown["lines"])
         coverage_rows = (row.get("details") or {}).get("coverage") or []
         for coverage in coverage_rows:
@@ -675,15 +662,29 @@ def route_editor() -> None:
             result = request(
                 "POST", f"/api/v1/routes/{route['id']}/revisions", json={"steps": json.loads(steps_text)}
             )
-            st.success(f"Создана ревизия {result['revision']}")
+            st.success(f"Создана версия маршрута {result['revision']}")
             st.rerun()
-        draft_ids = [revision["id"] for revision in revisions if revision["status"] == "draft"]
-        if draft_ids:
-            draft = st.selectbox("Черновик ревизии", draft_ids)
+        draft_revisions = [
+            revision for revision in revisions if revision["status"] == "draft"
+        ]
+        if draft_revisions:
+            draft_options = {
+                draft_revision_label(revision): revision["id"]
+                for revision in draft_revisions
+            }
+            draft_label = st.selectbox("Черновая версия", list(draft_options))
+            draft_id = draft_options[draft_label]
             activation_reason = st.text_input("Причина активации")
             if st.button("Активировать"):
-                request("POST", f"/api/v1/routes/{route['id']}/activate", params={"revision_id": draft, "reason": activation_reason})
-                st.success("Ревизия активирована")
+                request(
+                    "POST",
+                    f"/api/v1/routes/{route['id']}/activate",
+                    params={
+                        "revision_id": draft_id,
+                        "reason": activation_reason,
+                    },
+                )
+                st.success("Версия маршрута активирована")
                 st.rerun()
     with st.expander("Импорт маршрута JSON"):
         payload = st.text_area("JSON маршрута", key="route_import")
@@ -980,15 +981,15 @@ def blast_radius() -> None:
     permissions = set(st.session_state.profile["permissions"])
 
     if "RUN_BLAST_RADIUS" in permissions:
-        st.subheader("Проблемы оборудования, требующие анализа")
+        st.subheader(EQUIPMENT_WARNINGS_TITLE)
         issues = request("GET", "/api/v1/risk/equipment-issues")
         if issues:
             for issue in issues[:10]:
                 issue_columns = st.columns([4, 1])
                 issue_columns[0].warning(
-                    f"**Требует анализа**  \n"
+                    f"**⚠ Предупреждение оборудования**  \n"
                     f"Оборудование: {issue['equipment_id']}  \n"
-                    f"Предупреждение: {equipment_issue_label(issue.get('code'))}  \n"
+                    f"Событие: {equipment_issue_label(issue.get('code'))}  \n"
                     f"Время: {format_timestamp(issue.get('occurred_at'))}"
                 )
                 if issue_columns[1].button(
@@ -1010,7 +1011,8 @@ def blast_radius() -> None:
                     st.session_state.blast_interval_suggested = True
                     st.rerun()
         else:
-            st.info("Предупреждений оборудования, требующих анализа, пока нет.")
+            st.info("Недавних предупреждений оборудования пока нет.")
+        st.caption(EQUIPMENT_WARNINGS_CAPTION)
 
         st.subheader("Поиск потенциально затронутых изделий")
         st.info(

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 import random
 from typing import Any
 
@@ -76,6 +76,7 @@ class SimulationEngine:
             item.completed = False
         session.status = SessionStatus.CREATED
         session.event_counter = 0
+        session.last_occurred_at = None
         session.last_error = None
         session.feed = []
 
@@ -110,7 +111,13 @@ class SimulationEngine:
         operation_run_id: str | None = None,
     ) -> dict[str, Any]:
         session.event_counter += 1
-        occurred_at = session.created_at + timedelta(minutes=session.event_counter)
+        now = datetime.now(timezone.utc)
+        occurred_at = (
+            now
+            if session.last_occurred_at is None
+            else max(now, session.last_occurred_at + timedelta(milliseconds=1))
+        )
+        session.last_occurred_at = occurred_at
         event_id = (
             f"SIM-{str(session.id).split('-')[0].upper()}-"
             f"G{session.generation}-{session.event_counter:06d}"
@@ -243,8 +250,8 @@ class SimulationEngine:
                 {
                     "completion_status": "completed",
                     "duration": {
-                        "value": 10,
-                        "unit": "min",
+                        "value": session.interval_seconds,
+                        "unit": "s",
                         "meaning": "simulated_cycle_time",
                     },
                     "parameters": {},

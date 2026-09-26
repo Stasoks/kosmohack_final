@@ -75,6 +75,38 @@ EQUIPMENT_ISSUE_LABELS: dict[str, str] = {
     "PRESSURE_LOW": "Пониженное давление",
 }
 
+EQUIPMENT_WARNINGS_TITLE = "Недавние предупреждения оборудования"
+EQUIPMENT_WARNINGS_CAPTION = (
+    "Предупреждение само по себе не доказывает неисправность и не означает "
+    "наличие дефекта на изделиях."
+)
+
+TIMELINE_CSS = """
+<style>
+.traceq-timeline {margin: .35rem 0 1rem 0;}
+.traceq-event {display:grid;grid-template-columns:5.8rem 1.4rem 1fr;min-height:4rem;}
+.traceq-time {color:inherit;opacity:.72;font-size:.82rem;padding-top:.15rem;text-align:right;}
+.traceq-rail {position:relative;display:flex;justify-content:center;color:inherit;}
+.traceq-rail:after {
+  content:"";position:absolute;top:1rem;bottom:-.25rem;width:2px;
+  background:currentColor;opacity:.28;
+}
+.traceq-event:last-child .traceq-rail:after {display:none;}
+.traceq-dot {
+  z-index:1;width:.78rem;height:.78rem;border-radius:50%;margin-top:.3rem;
+  background:#2e90fa;border:2px solid var(--background-color, transparent);
+  box-shadow:0 0 0 2px #2e90fa;
+}
+.traceq-event.warning .traceq-dot {background:#f79009;box-shadow:0 0 0 2px #f79009;}
+.traceq-event.critical .traceq-dot {background:#f04438;box-shadow:0 0 0 2px #f04438;}
+.traceq-event.action .traceq-dot {background:#9e77ed;box-shadow:0 0 0 2px #9e77ed;}
+.traceq-card {padding:0 0 .9rem .35rem;}
+.traceq-title {font-weight:650;color:inherit;line-height:1.35;}
+.traceq-lines {color:inherit;opacity:.76;font-size:.9rem;margin-top:.18rem;}
+.traceq-full-time {color:inherit;opacity:.62;font-size:.72rem;margin-top:.18rem;}
+</style>
+"""
+
 DOMAIN_LABELS: dict[str, dict[str, str]] = {
     "coverage": {
         "FULL": "Полное покрытие",
@@ -488,6 +520,15 @@ def label(value: Any, *, domain: str | None = None) -> str:
     return LABELS.get(raw, raw)
 
 
+def profile_header_label(profile: dict[str, Any]) -> str:
+    username = str(profile.get("username") or "Пользователь")
+    roles = [
+        label(role, domain="role")
+        for role in profile.get("roles") or []
+    ]
+    return f"{username} · {', '.join(roles)}" if roles else username
+
+
 def defect_label(value: Any) -> str:
     if value is None or value == "":
         return "—"
@@ -514,6 +555,62 @@ def route_revision_label(
 ) -> str:
     name = route_name_label(route_name, route_code)
     return f"{name} · Версия {revision}" if revision not in (None, "") else name
+
+
+def draft_revision_label(revision: dict[str, Any]) -> str:
+    return f"Версия {revision.get('revision', '—')} · Черновик"
+
+
+def pinned_operation_names(
+    item: dict[str, Any], routes: Iterable[dict[str, Any]]
+) -> dict[str, str]:
+    routes = list(routes)
+    route = next(
+        (row for row in routes if row.get("code") == item.get("route_code")),
+        None,
+    )
+    revision_id = str(item.get("route_revision_id") or "")
+    if route is None and revision_id:
+        route = next(
+            (
+                row
+                for row in routes
+                if any(
+                    str(revision.get("id") or "") == revision_id
+                    for revision in row.get("revisions") or []
+                )
+            ),
+            None,
+        )
+    if route is None:
+        return {}
+    revisions = route.get("revisions") or []
+    revision = next(
+        (
+            row
+            for row in revisions
+            if revision_id and str(row.get("id") or "") == revision_id
+        ),
+        None,
+    )
+    if revision is None:
+        pinned_number = item.get("route_revision")
+        revision = next(
+            (
+                row
+                for row in revisions
+                if pinned_number not in (None, "")
+                and str(row.get("revision")) == str(pinned_number)
+            ),
+            None,
+        )
+    if revision is None:
+        return {}
+    return {
+        str(step["operation_id"]): str(step["operation_name"])
+        for step in revision.get("steps") or []
+        if step.get("operation_id") and step.get("operation_name")
+    }
 
 
 def equipment_issue_label(code: Any) -> str:
@@ -723,7 +820,10 @@ def evidence_presentation(row: dict[str, Any]) -> dict[str, str]:
     }
 
 
-def activity_presentation(row: dict[str, Any]) -> dict[str, Any]:
+def activity_presentation(
+    row: dict[str, Any],
+    operation_names: dict[str, str] | None = None,
+) -> dict[str, Any]:
     activity_type = str(row.get("type") or "")
     details = row.get("details") or {}
     lines: list[str] = []
@@ -774,7 +874,11 @@ def activity_presentation(row: dict[str, Any]) -> dict[str, Any]:
         title = "Зафиксировано итоговое решение по изделию"
         lines.append(label(details.get("disposition")))
     elif activity_type in {"operation_started", "operation_finished", "rework_started", "rework_finished"}:
-        operation = operation_label(details.get("operation_id"), details.get("operation_name"))
+        operation_id = details.get("operation_id")
+        operation_name = details.get("operation_name")
+        if not operation_name and operation_names and operation_id is not None:
+            operation_name = operation_names.get(str(operation_id))
+        operation = operation_label(operation_id, operation_name)
         if activity_type == "operation_started":
             title = f"Операция «{operation}» начата"
         elif activity_type == "operation_finished":
