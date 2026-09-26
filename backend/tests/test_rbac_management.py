@@ -31,6 +31,8 @@ def test_default_separation_of_duties_is_unchanged() -> None:
     assert "ISSUE_QC_DECISION" not in ROLE_PERMISSIONS["technologist"]
     assert "APPROVE_CONTAINMENT" in ROLE_PERMISSIONS["controller"]
     assert "PROPOSE_CONTAINMENT" in ROLE_PERMISSIONS["technologist"]
+    assert "CHANGE_CRYPTO_PROFILE" in ROLE_PERMISSIONS["admin"]
+    assert "CHANGE_CRYPTO_PROFILE" not in ROLE_PERMISSIONS["technologist"]
     assert SYSTEM_LOCKED_ROLES == {"simulator_reader"}
 
 
@@ -115,6 +117,13 @@ def test_runtime_role_permission_management_and_seed_preservation() -> None:
     assert client.get(
         f"/api/v1/routes/{route_id}/export", headers=technologist_headers
     ).status_code == 200
+
+    denied_profile_change = client.patch(
+        "/api/v1/admin/crypto-profile",
+        headers=technologist_headers,
+        json={"profile_id": "HYBRID_PQ_V1", "reason": "RBAC proof"},
+    )
+    assert denied_profile_change.status_code == 403
 
     without_manage_routes = sorted(original - {"MANAGE_ROUTES"})
     try:

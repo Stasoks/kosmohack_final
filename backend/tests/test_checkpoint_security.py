@@ -24,6 +24,7 @@ from backend.app.security.checkpoints import (
     sign_checkpoint_payload,
     verify_checkpoint,
 )
+from backend.app.security.crypto import canonical_json_bytes
 
 
 def _classic_key(key_id: str, version: str = "1") -> CheckpointKeyMaterial:
@@ -119,6 +120,34 @@ def test_classic_checkpoint_rotation_verifies_old_key_and_reports_missing_key() 
 
     assert verify_checkpoint(row, rotated).overall == "VERIFIED"
     assert verify_checkpoint(row, _provider(new)).overall == "UNVERIFIABLE"
+
+
+def test_historical_classic_checkpoint_payload_remains_verifiable() -> None:
+    key = _classic_key("legacy-classic-v1")
+    payload = canonical_json_bytes(
+        {
+            "stream_id": "source:TEST",
+            "sequence": 7,
+            "root_mac": "cm9vdC1tYWM=",
+            "profile": "CLASSIC_V1",
+        }
+    )
+    row = IntegrityCheckpoint(
+        stream_type="raw",
+        stream_id="source:TEST",
+        sequence=7,
+        root_mac=b"root-mac",
+        crypto_profile_id="CLASSIC_V1",
+        classic_signature=ECDSAP256Signer().sign(payload, key.private_key or b""),
+        pq_signature=None,
+        format_version=None,
+    )
+
+    result = verify_checkpoint(row, _provider(key))
+
+    assert result.overall == "VERIFIED"
+    assert result.classic_status == "VERIFIED"
+    assert result.pq_status == "NOT_REQUIRED"
 
 
 def test_hybrid_never_falls_back_when_pq_key_is_missing() -> None:
