@@ -30,7 +30,13 @@ from backend.app.persistence.models import (
     TrustPolicy,
 )
 from backend.app.quality.birth_window import EvidenceValue, calculate_birth_window
-from backend.app.quality.trust import TrustPolicyValue, evaluate_trust
+from backend.app.quality.conflicts import conflicting_event_ids
+from backend.app.quality.trust import (
+    TrustPolicyValue,
+    effective_scope_context,
+    evaluate_trust,
+    scope_coverage,
+)
 from backend.app.security.crypto import build_aad, decrypt_event, utcnow
 from backend.app.settings import Settings
 
@@ -86,6 +92,68 @@ def _trust_policy(db: Session, control_point_id: str) -> TrustPolicyValue:
         requires_valid_device=policy.requires_valid_device,
         media_required=policy.media_required,
     )
+
+
+def _resolve_route_revision_id(
+    db: Session,
+    item_id: str,
+    item_value: dict[str, Any] | None,
+) -> uuid.UUID | None:
+    item = db.get(Item, item_id)
+    if item and item.route_revision_id:
+        return item.route_revision_id
+    if not item_value:
+        return None
+    route = db.scalar(
+        select(RouteDefinition).where(
+            RouteDefinition.code == (item_value.get("route_id") or "ROUTE-DEFAULT")
+        )
+    )
+    if not route:
+        return None
+    revision_number = _route_revision_number(item_value.get("route_revision"))
+    if revision_number is None:
+        return route.active_revision_id
+    revision = db.scalar(
+        select(RouteRevision).where(
+            RouteRevision.route_id == route.id,
+            RouteRevision.revision == revision_number,
+        )
+    )
+    return revision.id if revision else None
+
+
+def _route_inspection_scopes(
+    db: Session, route_revision_id: uuid.UUID | None
+) -> dict[str, dict[str, Any] | list[Any] | None]:
+    if route_revision_id is None:
+        return {}
+    return {
+        step.control_point_id: step.inspection_scope
+        for step in db.scalars(
+            select(RouteStep).where(RouteStep.route_revision_id == route_revision_id)
+        ).all()
+        if step.control_point_id
+    }
+
+
+def _targeted_rework_scope(
+    db: Session,
+    operation: dict[str, Any] | None,
+) -> dict[str, list[str]] | None:
+    if not operation or operation.get("run_reason") != "rework":
+        return None
+    raw_ncr_id = operation.get("rework_for_nonconformance_id")
+    if not raw_ncr_id:
+        return None
+    try:
+        ncr = db.get(Nonconformance, uuid.UUID(str(raw_ncr_id)))
+    except (TypeError, ValueError):
+        return None
+    if not ncr:
+        return None
+    components = [ncr.component_instance_id] if ncr.component_instance_id else ["*"]
+    return {"defect_types": [ncr.defect_type], "component_instance_ids": components}
 
 
 def _missing_check_limitations(
@@ -247,6 +315,16 @@ def rebuild_item(db: Session, item_id: str, settings: Settings) -> None:
         return
 
     events = [(raw, _decrypt(raw, settings)) for raw in raws]
+    registration = next(
+        (
+            ({**event["payload"], "registered_at": raw.occurred_at})
+            for raw, event in events
+            if raw.event_type == "item.registered"
+        ),
+        None,
+    )
+    route_revision_id = _resolve_route_revision_id(db, item_id, registration)
+    configured_scopes = _route_inspection_scopes(db, route_revision_id)
     item_value: dict[str, Any] | None = None
     operation_values: dict[str, dict[str, Any]] = {}
     observation_values: list[dict[str, Any]] = []
@@ -290,6 +368,10 @@ def rebuild_item(db: Session, item_id: str, settings: Settings) -> None:
                 ControlDeviceInvalidation.affected_to >= raw.occurred_at,
             ).limit(1)))
             trust = evaluate_trust(payload, policy, invalidated=invalidated)
+            configured_scope = configured_scopes.get(payload["control_point_id"])
+            targeted_scope = _targeted_rework_scope(
+                db, operation_values.get(raw.operation_run_id)
+            )
             observation_values.append(
                 {
                     **payload,
@@ -297,6 +379,11 @@ def rebuild_item(db: Session, item_id: str, settings: Settings) -> None:
                     "operation_run_id": raw.operation_run_id,
                     "event_id": raw.event_id,
                     "occurred_at": raw.occurred_at,
+                    "source_id": raw.source_id,
+                    "source_priority": 0,
+                    "inspection_scope": effective_scope_context(
+                        payload.get("inspection_scope"), configured_scope, targeted_scope
+                    ),
                     "trust_status": trust.status,
                     "trust_reasons": list(trust.reasons),
                 }
@@ -306,18 +393,12 @@ def rebuild_item(db: Session, item_id: str, settings: Settings) -> None:
         elif raw.event_type == "operator.action":
             action_values.append({**payload, "item_id": raw.item_id, "operation_run_id": raw.operation_run_id, "event_id": raw.event_id, "occurred_at": raw.occurred_at})
 
-    # Equal-time, equal-control-point observations with opposing results are not causal tie-breaks.
-    groups: dict[tuple[Any, ...], list[dict[str, Any]]] = {}
+    # Only equivalent, equal-priority claims inside one logical session conflict.
+    conflicted_ids = conflicting_event_ids(observation_values)
     for obs in observation_values:
-        session = obs.get("capture_session_id")
-        bucket = int(obs["occurred_at"].timestamp() // 300)
-        key = (session or bucket, obs["control_point_id"], obs.get("component_instance_id"))
-        groups.setdefault(key, []).append(obs)
-    for group in groups.values():
-        if len({obs["inspection_result"] for obs in group}) > 1:
-            for obs in group:
-                obs["trust_status"] = "CONFLICTED"
-                obs["trust_reasons"] = ["EQUIVALENT_OBSERVATIONS_CONFLICT"]
+        if obs["event_id"] in conflicted_ids:
+            obs["trust_status"] = "CONFLICTED"
+            obs["trust_reasons"] = ["EQUIVALENT_OBSERVATIONS_CONFLICT"]
 
     db.execute(delete(DefectObservation).where(DefectObservation.item_id == item_id))
     db.execute(delete(Observation).where(Observation.item_id == item_id))
@@ -328,24 +409,6 @@ def rebuild_item(db: Session, item_id: str, settings: Settings) -> None:
 
     item = db.get(Item, item_id)
     if item_value:
-        route_revision_id = item.route_revision_id if item else None
-        if not route_revision_id:
-            route = db.scalar(select(RouteDefinition).where(RouteDefinition.code == (item_value.get("route_id") or "ROUTE-DEFAULT")))
-            if route and item_value.get("route_revision") is not None:
-                revision_number = _route_revision_number(item_value.get("route_revision"))
-                revision = (
-                    db.scalar(
-                        select(RouteRevision).where(
-                            RouteRevision.route_id == route.id,
-                            RouteRevision.revision == revision_number,
-                        )
-                    )
-                    if revision_number is not None
-                    else None
-                )
-                route_revision_id = revision.id if revision else None
-            elif route:
-                route_revision_id = route.active_revision_id
         if item is None:
             structure_available = bool(db.scalar(select(ProductStructureSnapshot.id).where(
                 ProductStructureSnapshot.assembly_id == item_value["product_definition_id"],
@@ -414,6 +477,16 @@ def rebuild_item(db: Session, item_id: str, settings: Settings) -> None:
             )
         )
         for defect in value.get("defects", []):
+            component = defect.get("component_instance_id") or value.get(
+                "component_instance_id"
+            )
+            if (
+                scope_coverage(
+                    value.get("inspection_scope"), defect["defect_type"], component
+                )
+                == "NONE"
+            ):
+                continue
             pending_defects.append((obs_id, value, defect))
 
     # Flush parent observations first. Rebuilds use deterministic observation UUIDs and
@@ -466,6 +539,11 @@ def rebuild_item(db: Session, item_id: str, settings: Settings) -> None:
             continue
         for defect in obs.get("defects", []):
             component = defect.get("component_instance_id") or obs.get("component_instance_id")
+            if (
+                scope_coverage(obs.get("inspection_scope"), defect["defect_type"], component)
+                == "NONE"
+            ):
+                continue
             occurrence = db.scalar(
                 select(DefectOccurrence).where(
                     DefectOccurrence.item_id == item_id,

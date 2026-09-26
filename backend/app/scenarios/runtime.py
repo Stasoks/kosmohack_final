@@ -101,6 +101,20 @@ def _iso(value: datetime | None) -> str | None:
     return value.isoformat().replace("+00:00", "Z")
 
 
+def automatic_defect_assignment_detected(
+    *,
+    analysis_performed: bool,
+    ncr_count_before_analysis: int | None,
+    current_ncr_count: int,
+) -> bool:
+    """Detect only NCRs that were actually persisted after Blast Radius started."""
+    return bool(
+        analysis_performed
+        and ncr_count_before_analysis is not None
+        and current_ncr_count > ncr_count_before_analysis
+    )
+
+
 def _revision_number(value: Any) -> int | None:
     if isinstance(value, int):
         return value
@@ -289,6 +303,7 @@ class ScenarioRuntime:
             "CP-POST-MILL",
             "CP-POST-GRIND",
             "CP-POST-CLEAN",
+            "CP-POST-REWORK",
             "CP-FINAL",
         }
         for point in points:
@@ -875,7 +890,11 @@ class ScenarioRuntime:
             "must_not_include": sorted(
                 set(self.db.scalars(select(BlastRadiusExposure.item_id)).all())
             ),
-            "automatic_defect_assignment": bool(ncrs) if self.analysis_result else False,
+            "automatic_defect_assignment": automatic_defect_assignment_detected(
+                analysis_performed=self.analysis_result is not None,
+                ncr_count_before_analysis=self.ncr_count_before_analysis,
+                current_ncr_count=len(ncrs),
+            ),
             "automatic_containment_application": (
                 (self.db.scalar(select(func.count(ContainmentApplication.id))) or 0) > 0
             ),

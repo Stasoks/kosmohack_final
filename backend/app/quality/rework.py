@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from backend.app.quality.trust import scope_covers
+from backend.app.quality.trust import scope_coverage
 
 
 def repeat_good_covers_nonconformance(
@@ -26,8 +26,9 @@ def repeat_good_covers_nonconformance(
     elif observation_component not in (None, component_instance_id):
         return False
 
-    return scope_covers(
-        getattr(observation, "inspection_scope", None),
-        defect_type,
-        component_instance_id,
+    coverage = scope_coverage(
+        getattr(observation, "inspection_scope", None), defect_type, component_instance_id
     )
+    # TARGET_ONLY is deliberately valid for closing exactly its linked NCR,
+    # but cannot serve as a general historical GOOD boundary.
+    return coverage in {"FULL", "TARGET_ONLY"}

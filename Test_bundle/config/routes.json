@@ -6,6 +6,38 @@
       "status": "ACTIVE",
       "steps": [
         {
+          "position": 0,
+          "operation_id": "OP-INCOMING",
+          "station_id": "ST-INCOMING-01",
+          "control_point": {
+            "control_point_id": "CP-INCOMING",
+            "required": false,
+            "trust_policy_id": "TP-QC-DEFAULT-v1",
+            "inspection_scope": {
+              "coverage": {
+                "COMP-HOUSING-*": {
+                  "surface_crack": "FULL",
+                  "scratch_or_gouge": "FULL",
+                  "dent_or_deformation": "FULL",
+                  "contamination": "FULL",
+                  "missing_component": "NONE",
+                  "misplaced_component": "NONE"
+                },
+                "COMP-BRACKET-*": {
+                  "surface_crack": "PARTIAL",
+                  "scratch_or_gouge": "PARTIAL",
+                  "dent_or_deformation": "FULL",
+                  "contamination": "FULL",
+                  "missing_component": "FULL",
+                  "misplaced_component": "PARTIAL"
+                }
+              },
+              "default_coverage": "NONE",
+              "item_level_fallback": "COMP-HOUSING-*"
+            }
+          }
+        },
+        {
           "position": 1,
           "operation_id": "OP-MILL",
           "station_id": "ST-MILL-01",
@@ -14,15 +46,21 @@
             "required": true,
             "trust_policy_id": "TP-QC-DEFAULT-v1",
             "inspection_scope": {
-              "components": [
-                "COMP-HOUSING-1"
-              ],
-              "defect_types": [
-                "surface_crack",
-                "scratch_or_gouge",
-                "dent_or_deformation",
-                "contamination"
-              ]
+              "coverage": {
+                "COMP-HOUSING-*": {
+                  "surface_crack": "PARTIAL",
+                  "scratch_or_gouge": "FULL",
+                  "dent_or_deformation": "FULL",
+                  "contamination": "FULL",
+                  "missing_component": "NONE",
+                  "misplaced_component": "NONE"
+                },
+                "COMP-BRACKET-*": {
+                  "*": "NONE"
+                }
+              },
+              "default_coverage": "NONE",
+              "item_level_fallback": "COMP-HOUSING-*"
             }
           }
         },
@@ -35,15 +73,21 @@
             "required": true,
             "trust_policy_id": "TP-QC-DEFAULT-v1",
             "inspection_scope": {
-              "components": [
-                "COMP-HOUSING-1"
-              ],
-              "defect_types": [
-                "surface_crack",
-                "scratch_or_gouge",
-                "dent_or_deformation",
-                "contamination"
-              ]
+              "coverage": {
+                "COMP-HOUSING-*": {
+                  "surface_crack": "FULL",
+                  "scratch_or_gouge": "FULL",
+                  "dent_or_deformation": "PARTIAL",
+                  "contamination": "FULL",
+                  "missing_component": "NONE",
+                  "misplaced_component": "NONE"
+                },
+                "COMP-BRACKET-*": {
+                  "*": "NONE"
+                }
+              },
+              "default_coverage": "NONE",
+              "item_level_fallback": "COMP-HOUSING-*"
             }
           }
         },
@@ -56,18 +100,45 @@
             "required": true,
             "trust_policy_id": "TP-QC-DEFAULT-v1",
             "inspection_scope": {
-              "components": [
-                "COMP-HOUSING-1",
-                "COMP-BRACKET-1"
-              ],
-              "defect_types": [
-                "surface_crack",
-                "scratch_or_gouge",
-                "dent_or_deformation",
-                "contamination",
-                "missing_component",
-                "misplaced_component"
-              ]
+              "coverage": {
+                "COMP-HOUSING-*": {
+                  "surface_crack": "FULL",
+                  "scratch_or_gouge": "FULL",
+                  "dent_or_deformation": "FULL",
+                  "contamination": "FULL",
+                  "missing_component": "NONE",
+                  "misplaced_component": "NONE"
+                },
+                "COMP-BRACKET-*": {
+                  "surface_crack": "PARTIAL",
+                  "scratch_or_gouge": "FULL",
+                  "dent_or_deformation": "FULL",
+                  "contamination": "FULL",
+                  "missing_component": "FULL",
+                  "misplaced_component": "FULL"
+                }
+              },
+              "default_coverage": "NONE",
+              "item_level_fallback": "COMP-HOUSING-*"
+            }
+          }
+        },
+        {
+          "position": 4,
+          "operation_id": "OP-REWORK-VERIFY",
+          "station_id": "ST-REWORK-01",
+          "control_point": {
+            "control_point_id": "CP-POST-REWORK",
+            "required": false,
+            "trust_policy_id": "TP-QC-DEFAULT-v1",
+            "inspection_scope": {
+              "mode": "TARGET_ONLY",
+              "coverage": {
+                "*": {
+                  "*": "TARGET_ONLY"
+                }
+              },
+              "default_coverage": "NONE"
             }
           }
         }
@@ -79,6 +150,38 @@
       "status": "CANDIDATE",
       "steps": [
         {
+          "position": 0,
+          "operation_id": "OP-INCOMING",
+          "station_id": "ST-INCOMING-01",
+          "control_point": {
+            "control_point_id": "CP-INCOMING",
+            "required": false,
+            "trust_policy_id": "TP-QC-DEFAULT-v1",
+            "inspection_scope": {
+              "coverage": {
+                "COMP-HOUSING-*": {
+                  "surface_crack": "FULL",
+                  "scratch_or_gouge": "FULL",
+                  "dent_or_deformation": "FULL",
+                  "contamination": "FULL",
+                  "missing_component": "NONE",
+                  "misplaced_component": "NONE"
+                },
+                "COMP-BRACKET-*": {
+                  "surface_crack": "PARTIAL",
+                  "scratch_or_gouge": "PARTIAL",
+                  "dent_or_deformation": "FULL",
+                  "contamination": "FULL",
+                  "missing_component": "FULL",
+                  "misplaced_component": "PARTIAL"
+                }
+              },
+              "default_coverage": "NONE",
+              "item_level_fallback": "COMP-HOUSING-*"
+            }
+          }
+        },
+        {
           "position": 1,
           "operation_id": "OP-MILL",
           "station_id": "ST-MILL-01",
@@ -87,15 +190,21 @@
             "required": true,
             "trust_policy_id": "TP-QC-DEFAULT-v1",
             "inspection_scope": {
-              "components": [
-                "COMP-HOUSING-1"
-              ],
-              "defect_types": [
-                "surface_crack",
-                "scratch_or_gouge",
-                "dent_or_deformation",
-                "contamination"
-              ]
+              "coverage": {
+                "COMP-HOUSING-*": {
+                  "surface_crack": "PARTIAL",
+                  "scratch_or_gouge": "FULL",
+                  "dent_or_deformation": "FULL",
+                  "contamination": "FULL",
+                  "missing_component": "NONE",
+                  "misplaced_component": "NONE"
+                },
+                "COMP-BRACKET-*": {
+                  "*": "NONE"
+                }
+              },
+              "default_coverage": "NONE",
+              "item_level_fallback": "COMP-HOUSING-*"
             }
           }
         },
@@ -108,15 +217,21 @@
             "required": true,
             "trust_policy_id": "TP-QC-DEFAULT-v1",
             "inspection_scope": {
-              "components": [
-                "COMP-HOUSING-1"
-              ],
-              "defect_types": [
-                "surface_crack",
-                "scratch_or_gouge",
-                "dent_or_deformation",
-                "contamination"
-              ]
+              "coverage": {
+                "COMP-HOUSING-*": {
+                  "surface_crack": "FULL",
+                  "scratch_or_gouge": "FULL",
+                  "dent_or_deformation": "PARTIAL",
+                  "contamination": "FULL",
+                  "missing_component": "NONE",
+                  "misplaced_component": "NONE"
+                },
+                "COMP-BRACKET-*": {
+                  "*": "NONE"
+                }
+              },
+              "default_coverage": "NONE",
+              "item_level_fallback": "COMP-HOUSING-*"
             }
           }
         },
@@ -147,18 +262,45 @@
             "required": true,
             "trust_policy_id": "TP-QC-DEFAULT-v1",
             "inspection_scope": {
-              "components": [
-                "COMP-HOUSING-1",
-                "COMP-BRACKET-1"
-              ],
-              "defect_types": [
-                "surface_crack",
-                "scratch_or_gouge",
-                "dent_or_deformation",
-                "contamination",
-                "missing_component",
-                "misplaced_component"
-              ]
+              "coverage": {
+                "COMP-HOUSING-*": {
+                  "surface_crack": "FULL",
+                  "scratch_or_gouge": "FULL",
+                  "dent_or_deformation": "FULL",
+                  "contamination": "FULL",
+                  "missing_component": "NONE",
+                  "misplaced_component": "NONE"
+                },
+                "COMP-BRACKET-*": {
+                  "surface_crack": "PARTIAL",
+                  "scratch_or_gouge": "FULL",
+                  "dent_or_deformation": "FULL",
+                  "contamination": "FULL",
+                  "missing_component": "FULL",
+                  "misplaced_component": "FULL"
+                }
+              },
+              "default_coverage": "NONE",
+              "item_level_fallback": "COMP-HOUSING-*"
+            }
+          }
+        },
+        {
+          "position": 5,
+          "operation_id": "OP-REWORK-VERIFY",
+          "station_id": "ST-REWORK-01",
+          "control_point": {
+            "control_point_id": "CP-POST-REWORK",
+            "required": false,
+            "trust_policy_id": "TP-QC-DEFAULT-v1",
+            "inspection_scope": {
+              "mode": "TARGET_ONLY",
+              "coverage": {
+                "*": {
+                  "*": "TARGET_ONLY"
+                }
+              },
+              "default_coverage": "NONE"
             }
           }
         }

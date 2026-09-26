@@ -2,11 +2,11 @@
   "accepted_events": 8,
   "ncr": {
     "expected_status": "pending_review",
-    "defect_type": "surface_crack"
+    "defect_type": "scratch_or_gouge"
   },
   "birth_windows": [
     {
-      "defect_type": "surface_crack",
+      "defect_type": "scratch_or_gouge",
       "status": "BOUNDED",
       "last_trusted_good": "EV-S03-004",
       "first_trusted_defect": "EV-S03-008",

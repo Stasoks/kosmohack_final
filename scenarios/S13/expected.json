@@ -4,7 +4,7 @@
   },
   "birth_windows": [
     {
-      "defect_type": "surface_crack",
+      "defect_type": "scratch_or_gouge",
       "status": "BOUNDED",
       "last_trusted_good": "EV-S13-002",
       "first_trusted_defect": "EV-S13-006"

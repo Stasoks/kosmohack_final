@@ -15,7 +15,7 @@ Every directory under `scenarios/` is an executable acceptance bundle. The same 
 | S09 | privileged test tamper flips ciphertext and integrity verification fails |
 | S10 | opposing equivalent inspections become `CONFLICTED` and do not create trusted boundaries |
 | S11 | defect without prior trusted inspection stays LEFT_OPEN with an explicit limitation |
-| S12 | two defect types create two occurrences but one affected item |
+| S12 | two defect types create two occurrences; the same CP-POST-MILL GOOD is FULL for scratch but only PARTIAL for crack |
 | S13 | `impossible_to_assess` is `UNASSESSABLE` and does not narrow the window |
 | S14 | same event ID with changed content is `EVENT_ID_CONFLICT`; original raw fact remains |
 | S15 | out-of-order delivery rebuilds one coherent operation run |
@@ -49,3 +49,5 @@ A compact review sequence is:
 7. Run S22 to demonstrate RBAC and the controlled-release gate.
 
 Scenario Runner is an explainable demo surface and the same bundles are also executed automatically in the PostgreSQL CI job.
+
+For a timed 5–7 minute walkthrough, use [demo.md](demo.md).

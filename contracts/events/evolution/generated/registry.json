@@ -1,0 +1,9 @@
+{
+  "contracts": [
+    {
+      "event_type": "inspection.result",
+      "schema_version": "1.1"
+    }
+  ],
+  "source": "contracts/events/evolution/canonical-event-1.1-demo.schema.json"
+}

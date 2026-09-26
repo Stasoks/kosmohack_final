@@ -1,0 +1,167 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://trace-q.local/contracts/events/evolution/canonical-event-1.1-demo.schema.json",
+  "title": "TRACE-Q canonical inspection event 1.1 evolution demo",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "event_id",
+    "event_type",
+    "schema_version",
+    "occurred_at",
+    "source",
+    "payload"
+  ],
+  "properties": {
+    "event_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "event_type": {
+      "const": "inspection.result"
+    },
+    "schema_version": {
+      "const": "1.1"
+    },
+    "occurred_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "source": {
+      "$ref": "#/$defs/source"
+    },
+    "item_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "operation_run_id": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "payload": {
+      "$ref": "#/$defs/inspectionResult"
+    }
+  },
+  "$defs": {
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source_id",
+        "source_type"
+      ],
+      "properties": {
+        "source_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "source_type": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "sequence": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        }
+      }
+    },
+    "defect": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "defect_type"
+      ],
+      "properties": {
+        "defect_type": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "component_instance_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "inspectionResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "inspection_result",
+        "observation_quality",
+        "control_point_id"
+      ],
+      "properties": {
+        "inspection_result": {
+          "enum": [
+            "no_defect",
+            "defect_detected",
+            "impossible_to_assess"
+          ]
+        },
+        "observation_quality": {
+          "enum": [
+            "good",
+            "poor",
+            "unknown"
+          ]
+        },
+        "control_point_id": {
+          "type": "string"
+        },
+        "confidence": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 1
+        },
+        "inspection_scope": {
+          "type": [
+            "object",
+            "array",
+            "null"
+          ]
+        },
+        "defects": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/defect"
+          },
+          "default": []
+        },
+        "evidence_refs": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": []
+        },
+        "analyzer_version": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 128
+        }
+      }
+    }
+  },
+  "x-event-types": {
+    "inspection.result": [
+      "1.1"
+    ]
+  }
+}

@@ -3,6 +3,7 @@ from pathlib import Path
 import pytest
 
 from backend.app.scenarios.harness import ScenarioBundle, compare_invariants
+from backend.app.scenarios.runtime import automatic_defect_assignment_detected
 
 
 def test_all_acceptance_scenarios_are_discoverable():
@@ -71,6 +72,25 @@ def test_compare_invariants_supports_alternatives_and_forbidden_members():
     assert compare_invariants(401, [401, 403], "$.http_status") == []
     assert compare_invariants([], ["bad claim"], "$.must_not_output") == []
     assert compare_invariants(["bad claim"], ["bad claim"], "$.must_not_output")
+
+
+def test_s18_automatic_defect_assignment_uses_persistent_ncr_delta() -> None:
+    # An NCR that existed before the proposal must not be attributed to Blast Radius.
+    assert not automatic_defect_assignment_detected(
+        analysis_performed=True,
+        ncr_count_before_analysis=1,
+        current_ncr_count=1,
+    )
+    assert automatic_defect_assignment_detected(
+        analysis_performed=True,
+        ncr_count_before_analysis=1,
+        current_ncr_count=2,
+    )
+    assert not automatic_defect_assignment_detected(
+        analysis_performed=False,
+        ncr_count_before_analysis=None,
+        current_ncr_count=2,
+    )
 
 
 @pytest.mark.postgres

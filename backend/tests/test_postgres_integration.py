@@ -124,7 +124,10 @@ def test_blast_radius_requires_human_approval_before_application() -> None:
         headers=_headers(controller),
     )
     assert response.status_code == 200, response.text
-    assert response.json()["passed"] is True
+    scenario_result = response.json()
+    assert scenario_result["passed"] is True
+    assert scenario_result["actual"]["automatic_defect_assignment"] is False
+    assert scenario_result["actual"]["automatic_containment_application"] is False
 
     approvals = client.get(
         "/api/v1/risk/approvals",

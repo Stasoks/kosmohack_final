@@ -374,6 +374,7 @@ Generated artifacts are:
 
 ```text
 shared_contracts/generated/events.py
+shared_contracts/generated/events.ts
 shared_contracts/generated/registry.json
 ```
 
