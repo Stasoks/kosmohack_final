@@ -16,6 +16,7 @@ from backend.app.persistence.models import (
     AuditEntry,
     CryptoProfile,
     EventSource,
+    IntegrityCheckpoint,
     Permission,
     RawEvent,
     Role,
@@ -29,7 +30,13 @@ from backend.app.projections.rebuild import mark_projection_failed, rebuild_item
 from backend.app.security.audit import write_audit
 from backend.app.security.auth import Principal, require_critical_permission, require_permission
 from backend.app.security.integrity import verify_audit_integrity, verify_integrity
-from backend.app.security.checkpoints import create_classic_checkpoint
+from backend.app.security.checkpoint_keys import EnvCheckpointKeyProvider
+from backend.app.security.checkpoints import (
+    create_checkpoint,
+    profile_readiness,
+    require_profile_ready,
+    verify_checkpoint,
+)
 from backend.app.security.passwords import hash_password
 from backend.app.security.crypto import token_hash, utcnow
 from backend.app.security.permissions import (
@@ -60,6 +67,19 @@ class UserPatch(BaseModel):
 
 class RolePermissionsPatch(BaseModel):
     permissions: list[str]
+    reason: str = Field(min_length=3, max_length=500)
+
+    @field_validator("reason")
+    @classmethod
+    def _meaningful_reason(cls, value: str) -> str:
+        value = value.strip()
+        if len(value) < 3:
+            raise ValueError("reason must contain at least 3 non-whitespace characters")
+        return value
+
+
+class CryptoProfilePatch(BaseModel):
+    profile_id: str = Field(pattern="^(CLASSIC_V1|HYBRID_PQ_V1)$")
     reason: str = Field(min_length=3, max_length=500)
 
     @field_validator("reason")
@@ -590,23 +610,86 @@ def security_alerts(
 
 
 @router.get("/crypto-profile")
-def crypto_profile(_: Principal = Depends(require_permission("VERIFY_INTEGRITY")), db: Session = Depends(get_db)):
+def crypto_profile(
+    _: Principal = Depends(require_permission("VERIFY_INTEGRITY")),
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+):
     active = db.scalar(select(CryptoProfile).where(CryptoProfile.status == "ACTIVE"))
     profile_id = active.profile_id if active else "CLASSIC_V1"
-    return {"profile_id": profile_id, "algorithms": CRYPTO_PROFILES[profile_id],
-            "pq_available": False, "keys_stored_in_database": False}
+    provider = EnvCheckpointKeyProvider(settings)
+    readiness = profile_readiness(profile_id, provider)
+    latest = db.scalar(
+        select(IntegrityCheckpoint).order_by(IntegrityCheckpoint.created_at.desc()).limit(1)
+    )
+    latest_verification = verify_checkpoint(latest, provider).as_dict() if latest else None
+    return {
+        "profile_id": profile_id,
+        "algorithms": CRYPTO_PROFILES[profile_id],
+        "available_profiles": list(CRYPTO_PROFILES),
+        "readiness": readiness,
+        "pq_available": readiness["pq"]["runtime_available"],
+        "latest_checkpoint": latest_verification,
+        "keys_stored_in_database": False,
+    }
+
+
+@router.patch("/crypto-profile")
+def activate_crypto_profile(
+    body: CryptoProfilePatch,
+    request: Request,
+    principal: Principal = Depends(require_critical_permission("CHANGE_CRYPTO_PROFILE")),
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+):
+    provider = EnvCheckpointKeyProvider(settings)
+    readiness = require_profile_ready(body.profile_id, provider)
+    before = db.scalar(select(CryptoProfile.profile_id).where(CryptoProfile.status == "ACTIVE"))
+    profiles = db.scalars(select(CryptoProfile).with_for_update()).all()
+    by_id = {row.profile_id: row for row in profiles}
+    target = by_id.get(body.profile_id)
+    if target is None:
+        target = CryptoProfile(
+            profile_id=body.profile_id,
+            algorithms=CRYPTO_PROFILES[body.profile_id],
+        )
+        db.add(target)
+    for row in profiles:
+        row.status = "INACTIVE"
+    target.status = "ACTIVE"
+    target.algorithms = CRYPTO_PROFILES[body.profile_id]
+    target.activated_at = utcnow()
+    write_audit(
+        db,
+        action="crypto_profile_activate",
+        outcome="success",
+        actor_user_id=principal.user_id,
+        session_id=principal.session_id,
+        target_type="crypto_profile",
+        target_id=body.profile_id,
+        request_id=request.state.request_id,
+        safe_details={"before": before, "after": body.profile_id, "reason": body.reason},
+    )
+    db.commit()
+    return {"profile_id": body.profile_id, "readiness": readiness}
 
 
 @router.post("/integrity/checkpoints/{stream_id}")
 def checkpoint(stream_id: str, request: Request,
                principal: Principal = Depends(require_critical_permission("ROTATE_KEYS")),
                db: Session = Depends(get_db), settings: Settings = Depends(get_settings)):
-    row = create_classic_checkpoint(db, stream_id, settings)
+    row = create_checkpoint(db, stream_id, settings)
     write_audit(db, action="integrity_checkpoint", outcome="success", actor_user_id=principal.user_id,
                 session_id=principal.session_id, target_type="integrity_stream", target_id=stream_id,
                 request_id=request.state.request_id, safe_details={"profile": row.crypto_profile_id, "sequence": row.sequence})
     db.commit()
-    return {"checkpoint_id": row.id, "profile": row.crypto_profile_id, "sequence": row.sequence}
+    verification = verify_checkpoint(row, EnvCheckpointKeyProvider(settings))
+    return {
+        "checkpoint_id": row.id,
+        "profile": row.crypto_profile_id,
+        "sequence": row.sequence,
+        "verification": verification.as_dict(),
+    }
 
 
 @router.post("/integrity/verify")
@@ -621,7 +704,19 @@ def integrity_check(
     audit_entries_checked = db.scalar(select(func.count(AuditEntry.id))) or 0
     raw_failures = verify_integrity(db, settings)
     audit_failures = verify_audit_integrity(db, settings)
-    failed = bool(raw_failures or audit_failures)
+    provider = EnvCheckpointKeyProvider(settings)
+    checkpoint_results = [
+        verify_checkpoint(row, provider).as_dict()
+        for row in db.scalars(
+            select(IntegrityCheckpoint).order_by(IntegrityCheckpoint.created_at)
+        ).all()
+    ]
+    failed = bool(
+        raw_failures
+        or audit_failures
+        or any(row["overall"] == "FAILED" for row in checkpoint_results)
+    )
+    unverifiable = any(row["overall"] == "UNVERIFIABLE" for row in checkpoint_results)
     write_audit(
         db,
         action="integrity_verification",
@@ -634,11 +729,17 @@ def integrity_check(
         safe_details={
             "raw_failure_count": len(raw_failures),
             "audit_failure_count": len(audit_failures),
+            "checkpoint_failed_count": sum(
+                row["overall"] == "FAILED" for row in checkpoint_results
+            ),
+            "checkpoint_unverifiable_count": sum(
+                row["overall"] == "UNVERIFIABLE" for row in checkpoint_results
+            ),
         },
     )
     db.commit()
     return {
-        "status": "FAILED" if failed else "OK",
+        "status": "FAILED" if failed else ("UNVERIFIABLE" if unverifiable else "OK"),
         "checked_at": checked_at,
         "raw_events_checked": raw_events_checked,
         "audit_entries_checked": audit_entries_checked,
@@ -650,6 +751,7 @@ def integrity_check(
         ),
         "raw_failures": [failure.__dict__ for failure in raw_failures],
         "audit_failures": [failure.__dict__ for failure in audit_failures],
+        "checkpoint_results": checkpoint_results,
     }
 
 

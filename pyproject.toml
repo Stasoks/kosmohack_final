@@ -21,7 +21,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-pq = ["liboqs-python>=0.10,<1"]
+pq = ["liboqs-python==0.16.0.1"]
 
 [dependency-groups]
 dev = [
@@ -34,7 +34,10 @@ dev = [
 pythonpath = ["."]
 testpaths = ["backend/tests", "erp_emulator/tests", "factory_simulator/tests"]
 addopts = "-q --strict-markers"
-markers = ["postgres: requires the PostgreSQL integration database"]
+markers = [
+  "postgres: requires the PostgreSQL integration database",
+  "pq: requires the optional native ML-DSA-65 runtime",
+]
 
 [tool.ruff]
 target-version = "py312"

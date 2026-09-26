@@ -283,6 +283,19 @@ def seed() -> None:
             db.add(CryptoProfile(profile_id="CLASSIC_V1", status="ACTIVE",
                                  algorithms={"encryption": "AES-256-GCM", "integrity": "HMAC-SHA256", "checkpoint": "ECDSA-P256"},
                                  activated_at=utcnow()))
+        hybrid = db.get(CryptoProfile, "HYBRID_PQ_V1")
+        if hybrid is None:
+            db.add(
+                CryptoProfile(
+                    profile_id="HYBRID_PQ_V1",
+                    status="INACTIVE",
+                    algorithms={
+                        "encryption": "AES-256-GCM",
+                        "integrity": "HMAC-SHA256",
+                        "checkpoint": "ECDSA-P256+ML-DSA-65",
+                    },
+                )
+            )
         db.commit()
     finally:
         db.close()
