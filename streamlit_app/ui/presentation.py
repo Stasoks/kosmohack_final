@@ -276,6 +276,31 @@ EVIDENCE_TITLES = {
     "MISSING_CHECK": "Отсутствует обязательная проверка",
 }
 
+LIVE_WINDOW_LABELS = {
+    "15m": "15 минут",
+    "1h": "1 час",
+    "24h": "24 часа",
+    "all": "Всё время",
+}
+LIVE_DETECTION_DISCLAIMER = (
+    "Место обнаружения дефекта не является автоматически установленной причиной "
+    "его возникновения."
+)
+LIVE_EQUIPMENT_DISCLAIMER = (
+    "Предупреждения оборудования являются контекстом для расследования и не считаются "
+    "автоматически доказанной причиной дефекта."
+)
+LIVE_ACTIVITY_LABELS = {
+    "inspection_good": "Контроль завершён без выявленного дефекта",
+    "inspection_defect": "Получен сигнал дефекта",
+    "ncr_confirmed": "Несоответствие подтверждено контролёром",
+    "ncr_rejected": "Несоответствие отклонено контролёром",
+    "rework_started": "Начата доработка",
+    "reinspection_good": "Повторный контроль завершён без выявленного дефекта",
+    "release": "Изделие выпущено",
+    "equipment_warning": "Получено предупреждение оборудования",
+}
+
 ACTUAL_FIELD_LABELS = {
     "ncr": "Несоответствие",
     "ncr_count": "Количество несоответствий",
@@ -768,6 +793,76 @@ def duration_label(value: Any) -> str:
 
 def percentage_label(value: Any) -> str:
     return "Недостаточно данных" if value is None else f"{float(value):.1%}"
+
+
+def live_quality_metric_cards(snapshot: dict[str, Any]) -> dict[str, list[dict[str, Any]]]:
+    inspections = snapshot.get("inspections") or {}
+    quality = snapshot.get("quality") or {}
+    fpy = quality.get("first_pass_yield")
+    return {
+        "main": [
+            {"title": "Проверено", "value": int(inspections.get("total") or 0)},
+            {"title": "GOOD", "value": int(inspections.get("trusted_good") or 0)},
+            {
+                "title": "Сигналы дефекта",
+                "value": int(inspections.get("trusted_defect") or 0),
+            },
+            {
+                "title": "Подтверждённые NCR",
+                "value": int(quality.get("confirmed_ncr") or 0),
+            },
+            {"title": "FPY", "value": "0%" if fpy is None else f"{float(fpy):.1%}"},
+        ],
+        "state": [
+            {
+                "title": "Ожидают решения",
+                "value": int(quality.get("pending_review") or 0),
+            },
+            {
+                "title": "На доработке",
+                "value": int(quality.get("rework_required") or 0),
+            },
+            {"title": "Выпущено", "value": int(quality.get("released") or 0)},
+        ],
+    }
+
+
+def live_quality_timeline_rows(snapshot: dict[str, Any]) -> list[dict[str, Any]]:
+    return [
+        {
+            "Время": row.get("bucket"),
+            "GOOD": int(row.get("good") or 0),
+            "Сигналы дефекта": int(row.get("defect") or 0),
+        }
+        for row in snapshot.get("timeline") or []
+    ]
+
+
+def live_quality_station_rows(snapshot: dict[str, Any]) -> list[dict[str, Any]]:
+    return [
+        {
+            "Место обнаружения": row.get("station_id") or "Не указано",
+            "Сигналы дефекта": int(row.get("trusted_defect") or 0),
+        }
+        for row in snapshot.get("stations") or []
+        if int(row.get("trusted_defect") or 0) > 0
+    ]
+
+
+def live_quality_activity_rows(snapshot: dict[str, Any]) -> list[dict[str, Any]]:
+    rows = []
+    for row in snapshot.get("recent_activity") or []:
+        context = row.get("equipment_id") or row.get("item_id") or "—"
+        rows.append(
+            {
+                "Время": format_timestamp(row.get("at")),
+                "Изделие / оборудование": context,
+                "Изменение": LIVE_ACTIVITY_LABELS.get(
+                    str(row.get("kind") or ""), "Производственное изменение"
+                ),
+            }
+        )
+    return rows
 
 
 def structure_notice(structure_status: str | None) -> tuple[str, str] | None:

@@ -12,6 +12,9 @@ from streamlit_app.api_client.simulator import simulator_request
 from streamlit_app.ui.presentation import (
     EQUIPMENT_WARNINGS_CAPTION,
     EQUIPMENT_WARNINGS_TITLE,
+    LIVE_DETECTION_DISCLAIMER,
+    LIVE_EQUIPMENT_DISCLAIMER,
+    LIVE_WINDOW_LABELS,
     TIMELINE_CSS,
     analysis_evidence_rows,
     analysis_history_rows,
@@ -36,6 +39,10 @@ from streamlit_app.ui.presentation import (
     is_completed_nonconformance,
     item_table_rows,
     label,
+    live_quality_activity_rows,
+    live_quality_metric_cards,
+    live_quality_station_rows,
+    live_quality_timeline_rows,
     nonconformance_table_rows,
     pinned_operation_names,
     percentage_label,
@@ -89,9 +96,130 @@ def technical_data(value, title: str = "Технические данные") ->
         st.json(value, expanded=False)
 
 
+@st.fragment(run_every=2.0)
+def _live_quality_dashboard() -> None:
+    windows = list(LIVE_WINDOW_LABELS)
+    window = st.selectbox(
+        "Период оперативного мониторинга",
+        windows,
+        index=windows.index("1h"),
+        format_func=LIVE_WINDOW_LABELS.get,
+        key="live_quality_window",
+    )
+    try:
+        snapshot = request(
+            "GET",
+            "/api/v1/analytics/live-quality",
+            params={"window": window},
+        )
+    except APIError as exc:
+        if exc.status_code == 403:
+            refresh_profile()
+            st.rerun()
+        if exc.status_code == 401:
+            st.rerun()
+        st.warning("Оперативный мониторинг временно недоступен.")
+        return
+
+    st.caption(
+        f"● LIVE · {LIVE_WINDOW_LABELS[window]} · "
+        f"Обновлено {format_timestamp(snapshot.get('calculated_at'))}"
+    )
+    cards = live_quality_metric_cards(snapshot)
+    for column, card in zip(st.columns(5), cards["main"]):
+        column.metric(card["title"], card["value"])
+    for column, card in zip(st.columns(3), cards["state"]):
+        column.metric(card["title"], card["value"])
+    st.caption(
+        "GOOD и сигналы дефекта показывают достоверные результаты контроля. "
+        "Сигнал дефекта не является подтверждённым NCR, а GOOD не означает автоматический выпуск."
+    )
+
+    st.subheader("Динамика GOOD / сигналов дефекта")
+    timeline_rows = live_quality_timeline_rows(snapshot)
+    if timeline_rows:
+        st.line_chart(
+            timeline_rows,
+            x="Время",
+            y=["GOOD", "Сигналы дефекта"],
+        )
+    else:
+        st.info("За выбранный период данных контроля пока нет.")
+
+    st.subheader("Сигналы дефекта по месту обнаружения")
+    station_rows = live_quality_station_rows(snapshot)
+    if station_rows:
+        st.bar_chart(
+            station_rows,
+            x="Место обнаружения",
+            y="Сигналы дефекта",
+            horizontal=True,
+        )
+    else:
+        st.info("За выбранный период достоверных сигналов дефекта нет.")
+    st.caption(LIVE_DETECTION_DISCLAIMER)
+
+    deviations, recent = st.columns(2)
+    with deviations:
+        st.subheader("Текущие отклонения")
+        quality = snapshot.get("quality") or {}
+        st.markdown(
+            f"- Ожидают решения: **{int(quality.get('pending_review') or 0)}**\n"
+            f"- На доработке: **{int(quality.get('rework_required') or 0)}**"
+        )
+        for row in station_rows:
+            st.markdown(
+                f"- {row['Место обнаружения']} · "
+                f"{row['Сигналы дефекта']} сигналов дефекта за период"
+            )
+        defect_types = snapshot.get("defects_by_type") or []
+        if defect_types:
+            st.dataframe(
+                [
+                    {
+                        "Тип сигнала": defect_label(row.get("defect_type")),
+                        "Количество": int(row.get("count") or 0),
+                    }
+                    for row in defect_types
+                ],
+                use_container_width=True,
+                hide_index=True,
+            )
+
+        st.markdown("#### Предупреждения оборудования")
+        equipment = snapshot.get("equipment_context") or []
+        if equipment:
+            st.dataframe(
+                [
+                    {
+                        "Оборудование": row.get("equipment_id") or "Не указано",
+                        "Предупреждения": int(row.get("warnings") or 0),
+                    }
+                    for row in equipment
+                ],
+                use_container_width=True,
+                hide_index=True,
+            )
+        else:
+            st.info("За выбранный период предупреждений оборудования нет.")
+        st.caption(LIVE_EQUIPMENT_DISCLAIMER)
+
+    with recent:
+        st.subheader("Последние изменения")
+        activity_rows = live_quality_activity_rows(snapshot)
+        if activity_rows:
+            st.dataframe(activity_rows, use_container_width=True, hide_index=True)
+        else:
+            st.info("Производственно значимых изменений пока нет.")
+
+    st.divider()
+
+
 def overview() -> None:
     header("TRACE-Q · Обзор")
     permissions = set(st.session_state.profile["permissions"])
+    if "VIEW_ANALYTICS" in permissions:
+        _live_quality_dashboard()
     if "VIEW_PRODUCT" in permissions:
         items = request("GET", "/api/v1/items")
         routes = request("GET", "/api/v1/routes")
