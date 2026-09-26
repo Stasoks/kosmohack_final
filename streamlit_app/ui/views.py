@@ -7,7 +7,7 @@ from typing import Callable
 
 import streamlit as st
 
-from streamlit_app.api_client.client import APIError, logout, request
+from streamlit_app.api_client.client import APIError, logout, refresh_profile, request
 from streamlit_app.api_client.simulator import simulator_request
 from streamlit_app.ui.presentation import (
     EQUIPMENT_WARNINGS_CAPTION,
@@ -65,6 +65,9 @@ def guarded(render: Callable[[], None]) -> Callable[[], None]:
         except APIError as exc:
             st.error(api_error_message(exc.code, exc.message, exc.details))
             st.caption(f"Технический код: {exc.code}")
+            if exc.status_code == 403:
+                refresh_profile()
+                st.rerun()
             if exc.status_code == 401:
                 st.rerun()
 
@@ -774,6 +777,7 @@ def admin_panel() -> None:
     tabs = st.tabs(
         [
             "Пользователи",
+            "Роли и права",
             "Источники событий",
             "Интеграции",
             "Аудит",
@@ -853,6 +857,68 @@ def admin_panel() -> None:
                     st.success(f"Создан пользователь {result['username']}")
                     st.rerun()
     with tabs[1]:
+        roles = request("GET", "/api/v1/admin/roles")
+        st.dataframe(
+            [
+                {
+                    "Роль": label(row["name"], domain="role"),
+                    "Состояние": "Изменена" if row["customized"] else "По умолчанию",
+                    "Права": len(row["permissions"]),
+                    "Системная": "Да" if row["system_locked"] else "Нет",
+                }
+                for row in roles
+            ],
+            use_container_width=True,
+            hide_index=True,
+        )
+        if roles:
+            role_by_label = {
+                label(row["name"], domain="role"): row for row in roles
+            }
+            selected_role = role_by_label[
+                st.selectbox("Роль", role_by_label, key="permission_role")
+            ]
+            catalog = selected_role["permission_catalog"]
+            permission_labels = {
+                f"{row['label']} — {row['description']}": row["name"] for row in catalog
+            }
+            selected_labels = [
+                display
+                for display, name in permission_labels.items()
+                if name in selected_role["permissions"]
+            ]
+            with st.form("edit_role_permissions"):
+                chosen_labels = st.multiselect(
+                    "Разрешения",
+                    list(permission_labels),
+                    default=selected_labels,
+                    disabled=selected_role["system_locked"],
+                )
+                reason = st.text_area(
+                    "Причина изменения",
+                    disabled=selected_role["system_locked"],
+                )
+                submitted = st.form_submit_button(
+                    "Сохранить права",
+                    disabled=selected_role["system_locked"],
+                )
+                if submitted:
+                    request(
+                        "PATCH",
+                        f"/api/v1/admin/roles/{selected_role['id']}/permissions",
+                        json={
+                            "permissions": [permission_labels[value] for value in chosen_labels],
+                            "reason": reason,
+                        },
+                    )
+                    refresh_profile()
+                    st.success("Права роли обновлены")
+                    st.rerun()
+            if selected_role["system_locked"]:
+                st.info("Системная роль симулятора доступна только для просмотра.")
+            with st.expander("Технические коды прав"):
+                st.code("\n".join(selected_role["permissions"]) or "—")
+    with tabs[2]:
         sources = request("GET", "/api/v1/admin/sources")
         st.dataframe(
             [
@@ -907,7 +973,7 @@ def admin_panel() -> None:
                     else:
                         st.success(f"Источник {result['source_id']} зарегистрирован")
                     st.rerun()
-    with tabs[2]:
+    with tabs[3]:
         integrations = request("GET", "/api/v1/integrations")
         st.subheader("Подключения")
         st.dataframe(
@@ -958,7 +1024,7 @@ def admin_panel() -> None:
                 f"{result['new_mappings']}"
             )
             technical_data(result, "Технический ответ синхронизации")
-    with tabs[3]:
+    with tabs[4]:
         audit = request("GET", "/api/v1/admin/audit")
         st.dataframe(
             [
@@ -975,7 +1041,7 @@ def admin_panel() -> None:
             hide_index=True,
         )
         technical_data(audit, "Технические записи аудита")
-    with tabs[4]:
+    with tabs[5]:
         crypto = request("GET", "/api/v1/admin/crypto-profile")
         st.info(
             f"Активный криптографический профиль: {crypto['profile_id']}. "
@@ -1027,7 +1093,7 @@ def admin_panel() -> None:
         if st.button("Перестроить") and item_id:
             request("POST", f"/api/v1/admin/rebuild/{item_id}")
             st.success(f"Производное состояние {item_id} перестроено")
-    with tabs[5]:
+    with tabs[6]:
         alerts = request("GET", "/api/v1/admin/security-alerts")
         if alerts:
             st.dataframe(

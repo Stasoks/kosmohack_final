@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import date, datetime, time, timezone
+from pathlib import Path
 from types import SimpleNamespace
 
 import httpx
@@ -127,6 +128,15 @@ def test_header_roles_and_draft_revision_are_human_readable() -> None:
     assert draft_revision_label(
         {"id": "fbc5e52a-9192-4d28-ac5e-a95907ab6207", "revision": 3}
     ) == "Версия 3 · Черновик"
+
+
+def test_role_capability_ui_uses_human_readable_copy() -> None:
+    source = Path(views.__file__).read_text(encoding="utf-8")
+
+    assert '"Роли и права"' in source
+    assert '"Причина изменения"' in source
+    assert '"Сохранить права"' in source
+    assert 'disabled=selected_role["system_locked"]' in source
 
 
 def test_timeline_css_is_theme_safe() -> None:

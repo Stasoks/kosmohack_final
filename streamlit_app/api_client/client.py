@@ -60,6 +60,12 @@ def clear_session() -> None:
     st.session_state.pop("profile", None)
 
 
+def refresh_profile() -> dict[str, Any]:
+    profile = request("GET", "/api/v1/auth/me")
+    st.session_state.profile = profile
+    return profile
+
+
 def _refresh() -> bool:
     auth = st.session_state.get("auth")
     if not auth or not auth.get("refresh_token"):

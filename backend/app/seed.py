@@ -52,19 +52,23 @@ def seed() -> None:
             permissions[name], _ = _get_or_create(db, Permission, name=name)
         roles: dict[str, Role] = {}
         for role_name in ROLE_PERMISSIONS:
-            roles[role_name], _ = _get_or_create(
+            roles[role_name], role_created = _get_or_create(
                 db,
                 Role,
                 defaults={"description": f"TRACE-Q base role: {role_name}"},
                 name=role_name,
             )
-            for permission_name in ROLE_PERMISSIONS[role_name]:
-                _get_or_create(
-                    db,
-                    RolePermission,
-                    role_id=roles[role_name].id,
-                    permission_id=permissions[permission_name].id,
-                )
+            # Defaults are bootstrap data, not runtime policy. Once a role exists,
+            # its RolePermission rows belong to the administrator and seed must not
+            # silently restore a permission that was deliberately removed.
+            if role_created:
+                for permission_name in ROLE_PERMISSIONS[role_name]:
+                    _get_or_create(
+                        db,
+                        RolePermission,
+                        role_id=roles[role_name].id,
+                        permission_id=permissions[permission_name].id,
+                    )
 
         if settings.demo_mode:
             password_fields = {

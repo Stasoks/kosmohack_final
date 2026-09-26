@@ -6,7 +6,7 @@ import uuid
 
 from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel, Field, field_validator
-from sqlalchemy import create_engine, func, select, text
+from sqlalchemy import create_engine, delete, func, select, text
 from sqlalchemy.orm import Session
 
 from backend.app.errors import NotFoundError, TraceQError
@@ -16,10 +16,13 @@ from backend.app.persistence.models import (
     AuditEntry,
     CryptoProfile,
     EventSource,
+    Permission,
     RawEvent,
     Role,
+    RolePermission,
     SecurityAlert,
     User,
+    UserRole,
 )
 from backend.app.security.key_provider import CRYPTO_PROFILES
 from backend.app.projections.rebuild import mark_projection_failed, rebuild_item
@@ -29,11 +32,17 @@ from backend.app.security.integrity import verify_audit_integrity, verify_integr
 from backend.app.security.checkpoints import create_classic_checkpoint
 from backend.app.security.passwords import hash_password
 from backend.app.security.crypto import token_hash, utcnow
-from backend.app.security.permissions import ROLE_PERMISSIONS
+from backend.app.security.permissions import (
+    PERMISSION_CATALOG,
+    PERMISSIONS,
+    ROLE_PERMISSIONS,
+    SYSTEM_LOCKED_ROLES,
+)
 from backend.app.settings import Settings, get_settings
 
 
 router = APIRouter(prefix="/api/v1/admin", tags=["admin"])
+RBAC_UPDATE_LOCK_ID = 0x5452414345524241
 
 
 class UserCreate(BaseModel):
@@ -47,6 +56,19 @@ class UserPatch(BaseModel):
     enabled: bool | None = None
     display_name: str | None = Field(default=None, min_length=1, max_length=160)
     roles: list[str] | None = None
+
+
+class RolePermissionsPatch(BaseModel):
+    permissions: list[str]
+    reason: str = Field(min_length=3, max_length=500)
+
+    @field_validator("reason")
+    @classmethod
+    def _meaningful_reason(cls, value: str) -> str:
+        value = value.strip()
+        if len(value) < 3:
+            raise ValueError("reason must contain at least 3 non-whitespace characters")
+        return value
 
 
 class SourceCreate(BaseModel):
@@ -92,6 +114,15 @@ def list_users(
     _: Principal = Depends(require_permission("MANAGE_USERS")),
     db: Session = Depends(get_db),
 ):
+    users = db.scalars(select(User).order_by(User.username)).all()
+    permission_rows = db.execute(
+        select(UserRole.user_id, Permission.name)
+        .join(RolePermission, RolePermission.role_id == UserRole.role_id)
+        .join(Permission, Permission.id == RolePermission.permission_id)
+    ).all()
+    effective: dict[uuid.UUID, set[str]] = {}
+    for user_id, permission_name in permission_rows:
+        effective.setdefault(user_id, set()).add(permission_name)
     return [
         {
             "id": user.id,
@@ -99,12 +130,213 @@ def list_users(
             "display_name": user.display_name,
             "enabled": user.enabled,
             "roles": [role.name for role in user.roles],
-            "effective_permissions": sorted(
-                set().union(*(ROLE_PERMISSIONS.get(role.name, set()) for role in user.roles))
-            ),
+            "effective_permissions": sorted(effective.get(user.id, set())),
         }
-        for user in db.scalars(select(User).order_by(User.username)).all()
+        for user in users
     ]
+
+
+def _permission_catalog() -> list[dict[str, str | bool]]:
+    return [
+        {
+            "name": name,
+            "label": PERMISSION_CATALOG[name]["label"],
+            "description": PERMISSION_CATALOG[name]["description"],
+            "critical": name in {"MANAGE_USERS", "ROTATE_KEYS", "CHANGE_CRYPTO_PROFILE"},
+        }
+        for name in PERMISSIONS
+    ]
+
+
+def _current_role_permissions(db: Session, role_id: uuid.UUID) -> set[str]:
+    return set(
+        db.scalars(
+            select(Permission.name)
+            .join(RolePermission, RolePermission.permission_id == Permission.id)
+            .where(RolePermission.role_id == role_id)
+        ).all()
+    )
+
+
+@router.get("/roles")
+def list_roles(
+    _: Principal = Depends(require_permission("MANAGE_USERS")),
+    db: Session = Depends(get_db),
+):
+    catalog = _permission_catalog()
+    rows = []
+    for role in db.scalars(select(Role).order_by(Role.name)).all():
+        current = _current_role_permissions(db, role.id)
+        defaults = set(ROLE_PERMISSIONS.get(role.name, set()))
+        rows.append(
+            {
+                "id": role.id,
+                "name": role.name,
+                "description": role.description,
+                "permissions": sorted(current),
+                "default_permissions": sorted(defaults),
+                "customized": current != defaults,
+                "system_locked": role.name in SYSTEM_LOCKED_ROLES,
+                "permission_catalog": catalog,
+            }
+        )
+    return rows
+
+
+@router.get("/permissions")
+def list_permissions(
+    _: Principal = Depends(require_permission("MANAGE_USERS")),
+):
+    return _permission_catalog()
+
+
+def _has_enabled_human_admin(
+    db: Session,
+    *,
+    changed_role_id: uuid.UUID,
+    changed_permissions: set[str],
+) -> bool:
+    manager_role_ids = set(
+        db.scalars(
+            select(RolePermission.role_id)
+            .join(Permission, Permission.id == RolePermission.permission_id)
+            .where(Permission.name == "MANAGE_USERS")
+        ).all()
+    )
+    if "MANAGE_USERS" in changed_permissions:
+        manager_role_ids.add(changed_role_id)
+    else:
+        manager_role_ids.discard(changed_role_id)
+
+    # Lock enabled users so two concurrent role updates cannot both conclude that
+    # the other role still provides the final administrative capability.
+    users = db.scalars(
+        select(User).where(User.enabled.is_(True)).with_for_update()
+    ).unique().all()
+    return any(
+        any(role.name not in SYSTEM_LOCKED_ROLES for role in user.roles)
+        and any(role.id in manager_role_ids for role in user.roles)
+        for user in users
+    )
+
+
+def _has_enabled_human_admin_after_user_change(
+    db: Session,
+    *,
+    changed_user_id: uuid.UUID,
+    changed_enabled: bool,
+    changed_roles: list[Role],
+) -> bool:
+    manager_role_ids = set(
+        db.scalars(
+            select(RolePermission.role_id)
+            .join(Permission, Permission.id == RolePermission.permission_id)
+            .where(Permission.name == "MANAGE_USERS")
+        ).all()
+    )
+    users = db.scalars(select(User).with_for_update()).unique().all()
+    for user in users:
+        enabled = changed_enabled if user.id == changed_user_id else user.enabled
+        roles = changed_roles if user.id == changed_user_id else user.roles
+        if (
+            enabled
+            and any(role.name not in SYSTEM_LOCKED_ROLES for role in roles)
+            and any(role.id in manager_role_ids for role in roles)
+        ):
+            return True
+    return False
+
+
+@router.patch("/roles/{role_id}/permissions")
+def patch_role_permissions(
+    role_id: uuid.UUID,
+    body: RolePermissionsPatch,
+    request: Request,
+    principal: Principal = Depends(require_critical_permission("MANAGE_USERS")),
+    db: Session = Depends(get_db),
+):
+    db.execute(
+        text("SELECT pg_advisory_xact_lock(:lock_id)"),
+        {"lock_id": RBAC_UPDATE_LOCK_ID},
+    )
+    role = db.scalar(select(Role).where(Role.id == role_id).with_for_update())
+    if role is None:
+        raise NotFoundError("Role")
+    if role.name in SYSTEM_LOCKED_ROLES:
+        raise TraceQError("SYSTEM_ROLE_LOCKED", "System role permissions cannot be changed", 409)
+
+    requested = set(body.permissions)
+    known = set(db.scalars(select(Permission.name)).all())
+    unknown = requested - known
+    if unknown:
+        raise TraceQError(
+            "UNKNOWN_PERMISSION",
+            f"Unknown permissions: {', '.join(sorted(unknown))}",
+            422,
+        )
+
+    before = _current_role_permissions(db, role.id)
+    if not _has_enabled_human_admin(
+        db, changed_role_id=role.id, changed_permissions=requested
+    ):
+        raise TraceQError(
+            "LAST_ADMIN_CAPABILITY",
+            "At least one enabled human user must retain MANAGE_USERS",
+            409,
+        )
+
+    by_name = {
+        permission.name: permission
+        for permission in db.scalars(
+            select(Permission).where(Permission.name.in_(requested))
+        ).all()
+    }
+    removed = before - requested
+    added = requested - before
+    if removed:
+        removed_ids = [
+            permission.id
+            for permission in db.scalars(
+                select(Permission).where(Permission.name.in_(removed))
+            ).all()
+        ]
+        db.execute(
+            delete(RolePermission).where(
+                RolePermission.role_id == role.id,
+                RolePermission.permission_id.in_(removed_ids),
+            )
+        )
+    for name in added:
+        db.add(RolePermission(role_id=role.id, permission_id=by_name[name].id))
+
+    details = {
+        "role": role.name,
+        "before": sorted(before),
+        "after": sorted(requested),
+        "added": sorted(added),
+        "removed": sorted(removed),
+        "reason": body.reason,
+    }
+    write_audit(
+        db,
+        action="role_permissions_update",
+        outcome="success",
+        actor_user_id=principal.user_id,
+        session_id=principal.session_id,
+        target_type="role",
+        target_id=str(role.id),
+        request_id=request.state.request_id,
+        safe_details=details,
+    )
+    db.commit()
+    return {
+        "id": role.id,
+        "name": role.name,
+        "permissions": sorted(requested),
+        "default_permissions": sorted(ROLE_PERMISSIONS.get(role.name, set())),
+        "customized": requested != set(ROLE_PERMISSIONS.get(role.name, set())),
+        "system_locked": False,
+    }
 
 
 @router.post("/users")
@@ -150,20 +382,40 @@ def patch_user(
     principal: Principal = Depends(require_permission("MANAGE_USERS")),
     db: Session = Depends(get_db),
 ):
-    user = db.get(User, user_id)
+    db.execute(
+        text("SELECT pg_advisory_xact_lock(:lock_id)"),
+        {"lock_id": RBAC_UPDATE_LOCK_ID},
+    )
+    user = db.scalar(select(User).where(User.id == user_id).with_for_update())
     if not user:
         raise NotFoundError("User")
+    candidate_enabled = body.enabled if body.enabled is not None else user.enabled
+    candidate_roles = list(user.roles)
+    if body.roles is not None:
+        candidate_roles = list(
+            db.scalars(select(Role).where(Role.name.in_(body.roles))).all()
+        )
+        if len(candidate_roles) != len(set(body.roles)):
+            raise TraceQError("UNKNOWN_ROLE", "One or more roles are unknown", 422)
     if body.enabled is not None:
         if user.id == principal.user_id and not body.enabled:
             raise TraceQError("CANNOT_DISABLE_SELF", "You cannot disable your own account", 409)
-        user.enabled = body.enabled
+    if (body.enabled is not None or body.roles is not None) and not _has_enabled_human_admin_after_user_change(
+        db,
+        changed_user_id=user.id,
+        changed_enabled=candidate_enabled,
+        changed_roles=candidate_roles,
+    ):
+        raise TraceQError(
+            "LAST_ADMIN_CAPABILITY",
+            "At least one enabled human user must retain MANAGE_USERS",
+            409,
+        )
+    user.enabled = candidate_enabled
     if body.display_name is not None:
         user.display_name = body.display_name
     if body.roles is not None:
-        roles = db.scalars(select(Role).where(Role.name.in_(body.roles))).all()
-        if len(roles) != len(set(body.roles)):
-            raise TraceQError("UNKNOWN_ROLE", "One or more roles are unknown", 422)
-        user.roles = list(roles)
+        user.roles = candidate_roles
     write_audit(
         db,
         action="user_update",
