@@ -7,13 +7,22 @@ from pathlib import Path
 
 from jsonschema import Draft202012Validator, FormatChecker
 
-from scripts.generate_contracts import (
-    ROOT,
-    _check_or_write,
-    events_text,
-    registry_text,
-    typescript_text,
-)
+if __package__:
+    from scripts.generate_contracts import (
+        ROOT,
+        _check_or_write,
+        events_text,
+        registry_text,
+        typescript_text,
+    )
+else:
+    from generate_contracts import (
+        ROOT,
+        _check_or_write,
+        events_text,
+        registry_text,
+        typescript_text,
+    )
 
 
 CURRENT = ROOT / "contracts/events/canonical-event.schema.json"
