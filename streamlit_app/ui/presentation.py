@@ -36,6 +36,10 @@ LABELS: dict[str, str] = {
     "available": "Доступна",
     "degraded": "Недоступна — контроль продолжается на уровне изделия",
     "rework": "Доработка",
+    "success": "Успешно",
+    "failure": "Ошибка",
+    "denied": "Отказано",
+    "pending": "Ожидает",
 }
 
 DOMAIN_LABELS: dict[str, dict[str, str]] = {
@@ -48,10 +52,115 @@ DOMAIN_LABELS: dict[str, dict[str, str]] = {
     "containment": {
         "NONE": "Без ограничений",
         "REVIEW_REQUIRED": "Требуется рассмотрение",
-        "HOLD": "Изделие удерживается",
+        "HOLD": "Удержать изделие",
         "REINSPECTION_REQUIRED": "Требуется повторный контроль",
     },
+    "risk_factor": {
+        "equipment": "Оборудование",
+        "tool": "Инструмент",
+        "material_lot": "Партия материала",
+        "control_device": "Контрольное устройство",
+        "component": "Компонент",
+        "time_interval": "Временной интервал",
+    },
+    "integration_health": {
+        "HEALTHY": "Работает",
+        "UNHEALTHY": "Есть проблема",
+        "DEGRADED": "Работает с ограничениями",
+        "UNKNOWN": "Нет актуальных данных",
+        "implemented": "Подключён",
+        "fixture_transport": "Демонстрационный транспорт",
+        "json_structure_provider": "Поставщик структуры JSON",
+    },
+    "outbox": {
+        "PENDING": "Ожидает отправки",
+        "PROCESSING": "Отправляется",
+        "RETRY": "Ожидает повторной отправки",
+        "RETRYING": "Повторная отправка",
+        "DELIVERED": "Доставлено",
+        "FAILED": "Ошибка доставки",
+        "DEAD": "Отправка прекращена после ошибок",
+    },
+    "severity": {
+        "LOW": "Низкая",
+        "MEDIUM": "Средняя",
+        "HIGH": "Высокая",
+        "CRITICAL": "Критическая",
+        "low": "Низкая",
+        "medium": "Средняя",
+        "high": "Высокая",
+        "critical": "Критическая",
+    },
+    "projection": {
+        "up_to_date": "Актуальна",
+        "rebuilding": "Перестраивается",
+        "failed": "Ошибка построения",
+    },
+    "ingestion": {
+        "accepted": "Принято",
+        "duplicate": "Повторная доставка",
+        "rejected": "Отклонено",
+    },
+    "worker": {
+        "RUNNING": "Работает",
+        "HEALTHY": "Работает",
+        "STALE": "Нет свежего heartbeat",
+        "STOPPED": "Остановлен",
+    },
+    "source_status": {
+        "ACTIVE": "Активен",
+        "SUSPENDED": "Приостановлен",
+        "REVOKED": "Отозван",
+        "EXPIRED": "Истёк",
+    },
+    "alert": {
+        "SOURCE_SEQUENCE_ANOMALY": "Нарушена последовательность событий источника",
+        "SOURCE_AUTH_FAILED": "Не удалось проверить источник",
+        "TRANSPORT_REPLAY": "Обнаружена повторная транспортная доставка",
+        "REPLAY_ATTEMPT": "Повтор транспортного запроса",
+        "RBAC_DENIED": "Доступ запрещён политикой ролей",
+        "CRITICAL_ACTION_DENIED": "Критическое действие не подтверждено",
+        "EVENT_ID_CONFLICT": "Одинаковый ID события с другим содержимым",
+        "RAW_LOG_INTEGRITY_FAILED": "Нарушена целостность журнала",
+        "AUDIT_LOG_INTEGRITY_FAILED": "Нарушена целостность журнала действий",
+        "INVALID_ACK": "Некорректное подтверждение ERP",
+    },
+    "role": {
+        "controller": "Контролёр качества",
+        "master": "Мастер участка",
+        "technologist": "Технолог",
+        "manager": "Руководитель производства",
+        "admin": "Администратор",
+        "simulator_reader": "Симулятор: только чтение",
+    },
+    "event_type": {
+        "item.registered": "Изделие зарегистрировано",
+        "operation.started": "Операция начата",
+        "operation.finished": "Операция завершена",
+        "inspection.result": "Получен результат контроля",
+        "machine.state": "Получено состояние оборудования",
+        "operator.action": "Зафиксировано действие оператора",
+    },
 }
+
+ALERT_EXPLANATIONS = {
+    "SOURCE_AUTH_FAILED": (
+        "Источник не зарегистрирован или не прошёл аутентификацию. Событие отклонено."
+    ),
+    "SOURCE_SEQUENCE_ANOMALY": (
+        "Номер события не продолжает ранее принятую последовательность этого источника."
+    ),
+    "REPLAY_ATTEMPT": "Повторно получен уже использованный транспортный запрос.",
+    "EVENT_ID_CONFLICT": "Получен существующий ID события с другим содержимым.",
+    "RAW_LOG_INTEGRITY_FAILED": "Криптографическая проверка исходного журнала не пройдена.",
+    "AUDIT_LOG_INTEGRITY_FAILED": "Криптографическая проверка аудита не пройдена.",
+    "RBAC_DENIED": "Пользователь попытался выполнить действие, запрещённое его ролью.",
+    "INVALID_ACK": "Внешняя ERP вернула неподходящее подтверждение сообщения.",
+}
+
+
+def alert_explanation(alert_type: str | None) -> str:
+    return ALERT_EXPLANATIONS.get(str(alert_type or ""), "Требуется проверка технических деталей.")
 
 EVIDENCE_TITLES = {
     "LAST_TRUSTED_GOOD": "Последняя достоверная проверка без дефекта",
@@ -139,7 +248,10 @@ def structure_notice(structure_status: str | None) -> tuple[str, str] | None:
 def coverage_explanation(coverage: str | None) -> str:
     return {
         "FULL": "Может подтверждать отсутствие дефекта.",
-        "PARTIAL": "Не может использоваться как GOOD-граница.",
+        "PARTIAL": (
+            "Проверка достоверна, но покрывает этот тип дефекта только частично. "
+            "Поэтому отсутствие дефекта на этой проверке не доказывает, что дефекта не было."
+        ),
         "NONE": "Эта проверка не оценивает данный тип дефекта.",
         "TARGET_ONLY": "Применимо только к целевой проверке после доработки.",
     }.get(coverage or "", "Покрытие для этого наблюдения не рассчитано.")
@@ -390,6 +502,10 @@ def item_table_rows(items: Iterable[dict[str, Any]]) -> list[dict[str, Any]]:
             "Изделие": row.get("item_id"),
             "Определение": row.get("product_definition_id"),
             "Ревизия": row.get("revision"),
+            "Маршрут": row.get("route_code") or "—",
+            "Ревизия маршрута": (
+                f"v{row['route_revision']}" if row.get("route_revision") else "—"
+            ),
             "Линия": row.get("line_id") or "—",
             "Статус": label(row.get("status")),
             "Структура": label(row.get("structure_status")),

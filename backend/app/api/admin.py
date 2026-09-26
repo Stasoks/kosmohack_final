@@ -6,13 +6,21 @@ import uuid
 
 from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel, Field, field_validator
-from sqlalchemy import create_engine, select, text
+from sqlalchemy import create_engine, func, select, text
 from sqlalchemy.orm import Session
 
 from backend.app.errors import NotFoundError, TraceQError
 from backend.app.domain.events import SUPPORTED_EVENT_TYPES
 from backend.app.persistence.database import SessionLocal, get_db
-from backend.app.persistence.models import AuditEntry, CryptoProfile, EventSource, Role, SecurityAlert, User
+from backend.app.persistence.models import (
+    AuditEntry,
+    CryptoProfile,
+    EventSource,
+    RawEvent,
+    Role,
+    SecurityAlert,
+    User,
+)
 from backend.app.security.key_provider import CRYPTO_PROFILES
 from backend.app.projections.rebuild import mark_projection_failed, rebuild_item
 from backend.app.security.audit import write_audit
@@ -20,7 +28,7 @@ from backend.app.security.auth import Principal, require_critical_permission, re
 from backend.app.security.integrity import verify_audit_integrity, verify_integrity
 from backend.app.security.checkpoints import create_classic_checkpoint
 from backend.app.security.passwords import hash_password
-from backend.app.security.crypto import token_hash
+from backend.app.security.crypto import token_hash, utcnow
 from backend.app.security.permissions import ROLE_PERMISSIONS
 from backend.app.settings import Settings, get_settings
 
@@ -356,6 +364,9 @@ def integrity_check(
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings),
 ):
+    checked_at = utcnow()
+    raw_events_checked = db.scalar(select(func.count(RawEvent.event_id))) or 0
+    audit_entries_checked = db.scalar(select(func.count(AuditEntry.id))) or 0
     raw_failures = verify_integrity(db, settings)
     audit_failures = verify_audit_integrity(db, settings)
     failed = bool(raw_failures or audit_failures)
@@ -376,6 +387,15 @@ def integrity_check(
     db.commit()
     return {
         "status": "FAILED" if failed else "OK",
+        "checked_at": checked_at,
+        "raw_events_checked": raw_events_checked,
+        "audit_entries_checked": audit_entries_checked,
+        "crypto_profile": (
+            db.scalar(
+                select(CryptoProfile.profile_id).where(CryptoProfile.status == "ACTIVE")
+            )
+            or "CLASSIC_V1"
+        ),
         "raw_failures": [failure.__dict__ for failure in raw_failures],
         "audit_failures": [failure.__dict__ for failure in audit_failures],
     }

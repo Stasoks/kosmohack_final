@@ -22,7 +22,7 @@ jobs:
       - run: python scripts/check_contract_evolution.py
       - run: python scripts/check_contract_fixtures.py
       - run: pytest -m "not postgres"
-      - run: python -m compileall -q backend erp_emulator worker streamlit_app scripts shared_contracts
+      - run: python -m compileall -q backend erp_emulator factory_simulator worker streamlit_app scripts shared_contracts
 
   postgres-integration:
     runs-on: ubuntu-latest
@@ -54,6 +54,7 @@ jobs:
       DEMO_TECHNOLOGIST_PASSWORD: technologist-demo
       DEMO_MANAGER_PASSWORD: manager-demo
       DEMO_ADMIN_PASSWORD: admin-demo
+      SIMULATOR_READER_PASSWORD: simulator-reader-demo
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5

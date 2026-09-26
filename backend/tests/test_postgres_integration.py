@@ -128,18 +128,31 @@ def test_demo_vertical_slice_security_and_outbox() -> None:
             )
 
 
-def test_timeline_activity_includes_rework_and_verification_decisions() -> None:
+@pytest.mark.parametrize(
+    ("scenario_id", "item_id", "defect_event", "rework_event", "repeat_event"),
+    [
+        ("S08", "ITEM-S08", "EV-S08-005", "EV-S08-006", "EV-S08-008"),
+        ("S16", "ITEM-S16", "EV-S16-005", "EV-S16-006", "EV-S16-008"),
+    ],
+)
+def test_timeline_activity_includes_chronological_rework_decisions(
+    scenario_id: str,
+    item_id: str,
+    defect_event: str,
+    rework_event: str,
+    repeat_event: str,
+) -> None:
     client = _client()
     controller = _login(client, "controller", "controller-demo")
     headers = _headers(controller)
     reset = client.post("/api/v1/demo/reset", headers=headers)
     assert reset.status_code == 200, reset.text
 
-    scenario = client.post("/api/v1/demo/scenarios/S08/run", headers=headers)
+    scenario = client.post(f"/api/v1/demo/scenarios/{scenario_id}/run", headers=headers)
     assert scenario.status_code == 200, scenario.text
     assert scenario.json()["passed"] is True
 
-    response = client.get("/api/v1/items/ITEM-S08/timeline", headers=headers)
+    response = client.get(f"/api/v1/items/{item_id}/timeline", headers=headers)
     assert response.status_code == 200, response.text
     value = response.json()
     assert value["events"]
@@ -150,7 +163,59 @@ def test_timeline_activity_includes_rework_and_verification_decisions() -> None:
         "rework_finished",
         "rework_verification",
         "final_disposition",
-    } <= activity_types
+    } - ({"final_disposition"} if scenario_id == "S16" else set()) <= activity_types
+
+    activity = value["activity"]
+    defect_at = next(row["occurred_at"] for row in activity if row["event_id"] == defect_event)
+    decision_at = next(
+        row["occurred_at"] for row in activity if row["type"] == "controller_decision"
+    )
+    rework_at = next(row["occurred_at"] for row in activity if row["event_id"] == rework_event)
+    repeat_at = next(row["occurred_at"] for row in activity if row["event_id"] == repeat_event)
+    verification_at = next(
+        row["occurred_at"] for row in activity if row["type"] == "rework_verification"
+    )
+    assert defect_at < decision_at < rework_at < repeat_at < verification_at
+
+
+def test_demo_reset_clears_fixture_source_sequence_watermark() -> None:
+    from backend.app.persistence.database import engine
+    from backend.app.persistence.models import EventSource
+    from backend.app.scenarios.runtime import FIXTURE_SOURCE_IDS
+    from sqlalchemy import select
+
+    client = _client()
+    controller = _login(client, "controller", "controller-demo")
+    admin = _login(client, "admin", "admin-demo")
+    controller_headers = _headers(controller)
+
+    high_sequence = client.post(
+        "/api/v1/demo/scenarios/S25/run", headers=controller_headers
+    )
+    assert high_sequence.status_code == 200, high_sequence.text
+    reset = client.post("/api/v1/demo/reset", headers=controller_headers)
+    assert reset.status_code == 200, reset.text
+    with engine.connect() as connection:
+        watermarks = connection.execute(
+            select(EventSource.source_id, EventSource.last_source_sequence).where(
+                EventSource.source_id.in_(FIXTURE_SOURCE_IDS)
+            )
+        ).all()
+    assert watermarks
+    assert all(value is None for _, value in watermarks)
+    low_sequence = client.post(
+        "/api/v1/demo/scenarios/S01/run", headers=controller_headers
+    )
+    assert low_sequence.status_code == 200, low_sequence.text
+    assert low_sequence.json()["passed"] is True
+
+    alerts = client.get(
+        "/api/v1/admin/security-alerts", headers=_headers(admin)
+    )
+    assert alerts.status_code == 200, alerts.text
+    assert all(
+        row["alert_type"] != "SOURCE_SEQUENCE_ANOMALY" for row in alerts.json()
+    )
 
 
 def test_timeline_activity_exposes_effective_coverage_per_defect_key() -> None:

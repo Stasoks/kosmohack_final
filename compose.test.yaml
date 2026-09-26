@@ -48,6 +48,7 @@ services:
       DEMO_TECHNOLOGIST_PASSWORD: technologist-demo
       DEMO_MANAGER_PASSWORD: manager-demo
       DEMO_ADMIN_PASSWORD: admin-demo
+      SIMULATOR_READER_PASSWORD: simulator-reader-demo
     command: ["python", "-m", "backend.app.seed"]
     depends_on:
       migrate-test: {condition: service_completed_successfully}
@@ -72,6 +73,7 @@ services:
       DEMO_TECHNOLOGIST_PASSWORD: technologist-demo
       DEMO_MANAGER_PASSWORD: manager-demo
       DEMO_ADMIN_PASSWORD: admin-demo
+      SIMULATOR_READER_PASSWORD: simulator-reader-demo
     command: ["./scripts/run_tests.sh", "postgres"]
     depends_on:
       seed-test: {condition: service_completed_successfully}

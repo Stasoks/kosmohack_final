@@ -28,6 +28,11 @@ PERMISSIONS = (
 )
 
 ROLE_PERMISSIONS: dict[str, set[str]] = {
+    "simulator_reader": {
+        "VIEW_PRODUCT",
+        "VIEW_TIMELINE",
+        "VIEW_NONCONFORMANCE",
+    },
     "controller": {
         "VIEW_PRODUCT",
         "VIEW_TIMELINE",

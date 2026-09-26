@@ -17,6 +17,8 @@ from backend.app.persistence.models import (
     OperationRun,
     ProjectionState,
     RawEvent,
+    RouteDefinition,
+    RouteRevision,
 )
 from backend.app.quality.trust import scope_coverage
 from backend.app.read_models.timeline import build_business_activity
@@ -24,6 +26,16 @@ from backend.app.security.auth import Principal, require_permission
 
 
 router = APIRouter(prefix="/api/v1/items", tags=["items"])
+
+
+def _route_identity(db: Session, route_revision_id) -> tuple[str | None, int | None]:
+    if not route_revision_id:
+        return None, None
+    revision = db.get(RouteRevision, route_revision_id)
+    if not revision:
+        return None, None
+    route = db.get(RouteDefinition, revision.route_id)
+    return (route.code if route else None), revision.revision
 
 
 @router.get("")
@@ -34,8 +46,10 @@ def list_items(
     db: Session = Depends(get_db),
 ):
     rows = db.scalars(select(Item).order_by(Item.registered_at.desc()).offset(offset).limit(limit)).all()
-    return [
-        {
+    result = []
+    for item in rows:
+        route_code, route_revision = _route_identity(db, item.route_revision_id)
+        result.append({
             "item_id": item.item_id,
             "product_definition_id": item.product_definition_id,
             "revision": item.revision,
@@ -43,9 +57,10 @@ def list_items(
             "status": item.status,
             "structure_status": item.structure_status,
             "registered_at": item.registered_at,
-        }
-        for item in rows
-    ]
+            "route_code": route_code,
+            "route_revision": route_revision,
+        })
+    return result
 
 
 @router.get("/{item_id}")
@@ -58,6 +73,7 @@ def get_item(
     if not item:
         raise NotFoundError("Item")
     projection = db.get(ProjectionState, item_id)
+    route_code, route_revision = _route_identity(db, item.route_revision_id)
     ncrs = db.scalars(
         select(Nonconformance).where(Nonconformance.item_id == item_id).order_by(Nonconformance.opened_at)
     ).all()
@@ -67,6 +83,8 @@ def get_item(
         "revision": item.revision,
         "line_id": item.line_id,
         "route_revision_id": item.route_revision_id,
+        "route_code": route_code,
+        "route_revision": route_revision,
         "status": item.status,
         "structure_status": item.structure_status,
         "registered_at": item.registered_at,

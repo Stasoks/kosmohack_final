@@ -2,7 +2,7 @@
 
 This document is for manual verification after the stack is running. For startup commands see `docs/LOCAL_RUNBOOK.md`.
 
-The fastest test surface is Streamlit -> **Scenario Runner**. Every S01-S25 bundle is also executed automatically by the PostgreSQL CI suite, but the UI lets you inspect the resulting state and explain it during the demo. After a run, **Рассчитанное состояние системы** shows the actual persisted/derived result separately from the **Проверки acceptance-сценария** checklist.
+The fastest test surface is Streamlit -> **Приёмочные сценарии**. Every S01-S25 bundle is also executed automatically by the PostgreSQL CI suite, but the UI lets you inspect the resulting state and explain it during the demo. After a run, **Рассчитанное состояние системы** shows the actual persisted/derived result separately from the **Проверки acceptance-сценария** checklist. For a route-driven live flow use **Симуляция производства**; it is intentionally separate from acceptance fixtures.
 
 ## 1. Basic health and login
 
@@ -18,7 +18,7 @@ Expected:
 
 - UI opens without a backend error;
 - Overview is visible;
-- Scenario Runner is available;
+- **Приёмочные сценарии** and **Симуляция производства** are available only in demo mode;
 - logout removes the active session and authorized menu, then returns to a clean login page.
 
 Useful RBAC check: log in as `admin`. The administrator can manage users/integrations and inspect security, but does not receive the QC decision permission.
@@ -161,7 +161,7 @@ Expected:
 - item disposition becomes `RELEASED`;
 - original defect occurrence remains in history.
 
-After the run, open **Решения QC → Все несоответствия** to inspect the completed NCR read-only. The item activity timeline must include the controller decision, linked rework start/finish, repeat inspection, verification and final release.
+After the run, open **Контроль качества → Все несоответствия** to inspect the completed NCR read-only. The item activity timeline must include the controller decision, linked rework start/finish, repeat inspection, verification and final release.
 
 ### Failed rework
 
@@ -214,7 +214,7 @@ Expected:
 
 The mutation endpoint exists only in demo mode. Raw history is append-only for the normal runtime database role.
 
-In Administration -> **Целостность**, use **Verify Integrity** to inspect both raw-event and audit integrity status.
+In **Администрирование → Целостность**, use **Проверить целостность** to inspect both raw-event and audit integrity status.
 
 ## 11. Source authentication, replay and unknown sources
 
@@ -229,7 +229,7 @@ This demonstrates the distinction between transport replay and idempotent retry.
 
 ## 12. Blast Radius and containment approval
 
-Run **S18** as a role with Scenario Runner permission.
+Run **S18** as a role with access to **Приёмочные сценарии**.
 
 Expected from the scenario:
 
@@ -241,7 +241,7 @@ Expected from the scenario:
 For the human approval path:
 
 1. Log in as `controller`.
-2. Open **Risk / Blast Radius**.
+2. Open **Риски / радиус влияния**.
 3. Open pending approvals.
 4. Approve the proposal with a reason.
 
@@ -261,7 +261,7 @@ The scenario path is **S17**.
 For the manual UI path:
 
 1. Log in as `controller`.
-2. Open **Risk / Blast Radius**.
+2. Open **Риски / радиус влияния**.
 3. Use **Инвалидация контрольного устройства**.
 4. Enter device ID, affected interval and reason.
 

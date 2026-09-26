@@ -15,6 +15,7 @@ from streamlit_app.ui.presentation import (
     decision_validation_error,
     evidence_groups,
     evidence_presentation,
+    alert_explanation,
     label,
     scenario_acceptance_checks,
     split_nonconformances,
@@ -32,6 +33,7 @@ def test_guarded_preserves_unique_page_callable_names() -> None:
         views.route_editor,
         views.blast_radius,
         views.admin_panel,
+        views.factory_simulator,
         views.scenario_runner,
     ]
 
@@ -56,6 +58,10 @@ def test_guarded_preserves_unique_page_callable_names() -> None:
         ("PARTIAL", "coverage", "Частичное покрытие"),
         ("NONE", "coverage", "Не проверяется"),
         ("TARGET_ONLY", "coverage", "Только целевая проверка после доработки"),
+        ("equipment", "risk_factor", "Оборудование"),
+        ("UNHEALTHY", "integration_health", "Есть проблема"),
+        ("RETRYING", "outbox", "Повторная отправка"),
+        ("CRITICAL", "severity", "Критическая"),
     ],
 )
 def test_presentation_labels_are_centralized(value: str, domain: str | None, expected: str) -> None:
@@ -90,8 +96,17 @@ def test_degraded_structure_and_partial_coverage_are_explained_as_fallbacks() ->
     )
     assert structure_notice("available") is None
     assert coverage_explanation("PARTIAL") == (
-        "Не может использоваться как GOOD-граница."
+        "Проверка достоверна, но покрывает этот тип дефекта только частично. "
+        "Поэтому отсутствие дефекта на этой проверке не доказывает, что дефекта не было."
     )
+
+
+def test_security_alerts_have_human_explanations() -> None:
+    assert label("SOURCE_AUTH_FAILED", domain="alert") == (
+        "Не удалось проверить источник"
+    )
+    assert "Событие отклонено" in alert_explanation("SOURCE_AUTH_FAILED")
+    assert label("INVALID_ACK", domain="alert") == "Некорректное подтверждение ERP"
 
 
 def test_evidence_is_grouped_and_context_is_not_presented_as_cause() -> None:
@@ -137,6 +152,19 @@ def test_authorized_navigation_is_rebuilt_for_the_new_role() -> None:
         "timeline",
     }
     assert {page.view_name for page in admin} == {"overview", "admin_panel"}
+
+
+def test_demo_navigation_is_explicitly_gated() -> None:
+    profile = {"permissions": ["RUN_DEMO_SCENARIOS"]}
+
+    assert {page.view_name for page in authorized_page_specs(profile, demo_mode=False)} == {
+        "overview"
+    }
+    assert {page.view_name for page in authorized_page_specs(profile, demo_mode=True)} == {
+        "overview",
+        "factory_simulator",
+        "scenario_runner",
+    }
 
 
 def test_completed_nonconformances_remain_in_all_and_completed_views() -> None:

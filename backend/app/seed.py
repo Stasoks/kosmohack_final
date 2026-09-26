@@ -73,6 +73,7 @@ def seed() -> None:
                 "technologist": settings.demo_technologist_password,
                 "manager": settings.demo_manager_password,
                 "admin": settings.demo_admin_password,
+                "factory-simulator": settings.simulator_reader_password,
             }
             missing = [name for name, value in password_fields.items() if not value]
             if missing:
@@ -83,8 +84,12 @@ def seed() -> None:
                 "technologist": "Технолог",
                 "manager": "Руководитель производства",
                 "admin": "Администратор",
+                "factory-simulator": "Симулятор производства (только чтение)",
             }
             for username, password in password_fields.items():
+                role_name = (
+                    "simulator_reader" if username == "factory-simulator" else username
+                )
                 user = db.scalar(select(User).where(User.username == username))
                 if user is None:
                     user = User(
@@ -92,11 +97,11 @@ def seed() -> None:
                         display_name=display_names[username],
                         password_hash=hash_password(password.get_secret_value()),  # type: ignore[union-attr]
                         enabled=True,
-                        roles=[roles[username]],
+                        roles=[roles[role_name]],
                     )
                     db.add(user)
-                elif roles[username] not in user.roles:
-                    user.roles = [roles[username]]
+                elif roles[role_name] not in user.roles:
+                    user.roles = [roles[role_name]]
 
         for line_id, name in (("LINE-A", "Участок механической обработки"), ("LINE-B", "Участок сборки")):
             _get_or_create(db, Line, defaults={"name": name}, id=line_id)

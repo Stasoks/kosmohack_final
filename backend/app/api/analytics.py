@@ -45,6 +45,15 @@ def quality_kpi(
         )
     ) or 0
     unique_defects = db.scalar(select(func.count(DefectOccurrence.id))) or 0
+    observed_defects = db.scalar(select(func.count(DefectObservation.id))) or 0
+    confirmed_physical_defects = db.scalar(
+        select(func.count(func.distinct(DefectOccurrence.id)))
+        .join(
+            Nonconformance,
+            Nonconformance.occurrence_id == DefectOccurrence.id,
+        )
+        .where(Nonconformance.verdict == "confirmed")
+    ) or 0
     defect_groups = db.execute(
         select(DefectOccurrence.defect_type, func.count(DefectOccurrence.id))
         .group_by(DefectOccurrence.defect_type)
@@ -108,6 +117,8 @@ def quality_kpi(
         "assessable_inspected_items": assessable,
         "items_with_confirmed_nc": confirmed_items,
         "number_of_unique_defects": unique_defects,
+        "observed_defect_signals": observed_defects,
+        "confirmed_physical_defects": confirmed_physical_defects,
         "defects_by_type": {name: count for name, count in defect_groups},
         "detected_defects_by_line_station": [
             {"line_id": line_id, "station_id": station_id, "count": count}
@@ -129,6 +140,7 @@ def quality_kpi(
         "operation_duration_median_seconds": percentile(durations, 0.5),
         "operation_duration_p95_seconds": percentile(durations, 0.95),
         "rework_count": rework_count,
+        "rework_items": rework_items,
         "rework_item_rate": rework_items / total_items if total_items else None,
         "first_pass_yield": (assessable - confirmed_items) / assessable if assessable else None,
         "birth_window_width_avg_seconds": sum(widths) / len(widths) if widths else None,
@@ -172,12 +184,31 @@ def data_health(
             select(OutboxMessage.state, func.count(OutboxMessage.id)).group_by(OutboxMessage.state)
         ).all()
     )
+    latest_attempt = db.scalar(
+        select(IngestAttempt).order_by(IngestAttempt.received_at.desc()).limit(1)
+    )
+    problem_items = db.scalars(
+        select(ProjectionState)
+        .where(ProjectionState.status != "up_to_date")
+        .order_by(ProjectionState.item_id)
+        .limit(100)
+    ).all()
     return {
         "calculated_at": datetime.now(timezone.utc),
         "ingestion": statuses,
         "errors": errors,
+        "last_ingest_at": latest_attempt.received_at if latest_attempt else None,
         "projections": projections,
         "outbox": outbox,
+        "problem_items": [
+            {
+                "item_id": row.item_id,
+                "status": row.status,
+                "last_error": row.last_error,
+                "last_rebuild_at": row.last_successful_rebuild_at,
+            }
+            for row in problem_items
+        ],
         "integrations": [
             {
                 "integration_id": row.integration_id,

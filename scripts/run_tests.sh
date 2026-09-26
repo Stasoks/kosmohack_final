@@ -6,7 +6,7 @@ export ENVIRONMENT=test
 export TRACEQ_TEST_DATABASE_URL="${TRACEQ_TEST_DATABASE_URL:-postgresql+psycopg://traceq_test:traceq_test@127.0.0.1:55433/traceq_test}"
 
 section() { printf '\n== TRACE-Q: %s ==\n' "$1"; }
-unit() { section unit; uv run pytest -m "not postgres" backend/tests erp_emulator/tests; }
+unit() { section unit; uv run pytest -m "not postgres" backend/tests erp_emulator/tests factory_simulator/tests; }
 postgres() { section postgres; RUN_POSTGRES_TESTS=1 uv run pytest -m postgres backend/tests; }
 scenarios() {
   section scenarios

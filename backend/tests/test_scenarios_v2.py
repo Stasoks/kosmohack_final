@@ -1,9 +1,10 @@
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
 
 from backend.app.scenarios.harness import ScenarioBundle, compare_invariants
-from backend.app.scenarios.runtime import automatic_defect_assignment_detected
+from backend.app.scenarios.runtime import ScenarioRuntime, automatic_defect_assignment_detected
 
 
 def test_all_acceptance_scenarios_are_discoverable():
@@ -14,6 +15,19 @@ def test_all_acceptance_scenarios_are_discoverable():
         if path.is_dir():
             bundle = ScenarioBundle.load(path)
             assert bundle.expected
+
+
+def test_demo_scenario_catalog_uses_fixture_metadata_titles() -> None:
+    from backend.app.api.demo import scenarios
+
+    catalog = scenarios()
+
+    assert len(catalog) == 25
+    assert {row["name"] for row in catalog} == {f"S{index:02d}" for index in range(1, 26)}
+    assert all(row["title"] != row["name"] for row in catalog)
+    assert next(row for row in catalog if row["name"] == "S08")["title"] == (
+        "Успешный rework lifecycle"
+    )
 
 
 def test_expected_is_subset_not_snapshot():
@@ -91,6 +105,20 @@ def test_s18_automatic_defect_assignment_uses_persistent_ncr_delta() -> None:
         ncr_count_before_analysis=None,
         current_ncr_count=2,
     )
+
+
+def test_scenario_action_clock_follows_last_fixture_event_deterministically() -> None:
+    runtime = ScenarioRuntime.__new__(ScenarioRuntime)
+    runtime._last_event_at = datetime(2026, 9, 25, 15, 52, tzinfo=timezone.utc)
+    runtime._action_offset = 0
+
+    first = runtime._next_action_at()
+    second = runtime._next_action_at()
+    next_production_event = datetime(2026, 9, 25, 16, 10, tzinfo=timezone.utc)
+
+    assert first == datetime(2026, 9, 25, 15, 52, 0, 1, tzinfo=timezone.utc)
+    assert second == datetime(2026, 9, 25, 15, 52, 0, 2, tzinfo=timezone.utc)
+    assert first < second < next_production_event
 
 
 @pytest.mark.postgres

@@ -3,13 +3,13 @@ from __future__ import annotations
 import copy
 import json
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
 from pydantic import SecretStr
-from sqlalchemy import create_engine, func, select, text
+from sqlalchemy import bindparam, create_engine, func, select, text
 from sqlalchemy.orm import Session
 
 from backend.app.api.nonconformances import (
@@ -95,6 +95,16 @@ ACTOR_USERNAMES = {
 }
 
 
+def _fixture_source_ids() -> tuple[str, ...]:
+    config = json.loads(
+        (TEST_BUNDLE / "config/sources.json").read_text(encoding="utf-8")
+    )
+    return tuple(sorted(str(value["source_id"]) for value in config["sources"]))
+
+
+FIXTURE_SOURCE_IDS = _fixture_source_ids()
+
+
 def _iso(value: datetime | None) -> str | None:
     if value is None:
         return None
@@ -155,6 +165,33 @@ class ScenarioRuntime:
         self.analysis_result: dict[str, Any] | None = None
         self.ncr_count_before_analysis: int | None = None
         self.audit_start = 0
+        self._last_event_at: datetime | None = None
+        self._action_offset = 0
+
+    def _next_action_at(self) -> datetime:
+        """Return a deterministic action time immediately after the triggering event."""
+        self._action_offset += 1
+        base = self._last_event_at or utcnow()
+        return base + timedelta(microseconds=self._action_offset)
+
+    def _stamp_decision(self, result: dict[str, Any], ncr: Nonconformance) -> None:
+        decision_id = result.get("decision_id")
+        if not decision_id:
+            return
+        decision = self.db.get(ControllerDecision, decision_id)
+        if decision is None:
+            return
+        action_at = self._next_action_at()
+        decision.created_at = action_at
+        if ncr.verification_decision_id == decision.id:
+            if ncr.resolved_at is not None:
+                ncr.resolved_at = action_at
+            if ncr.closed_at is not None:
+                ncr.closed_at = action_at
+            occurrence = self.db.get(DefectOccurrence, ncr.occurrence_id)
+            if occurrence and occurrence.closed_at is not None:
+                occurrence.closed_at = action_at
+        self.db.commit()
 
     def _request(self, suffix: str) -> Any:
         return SimpleNamespace(
@@ -189,6 +226,13 @@ class ScenarioRuntime:
         with engine.begin() as connection:
             connection.execute(
                 text(f"TRUNCATE TABLE {', '.join(DEMO_TABLES)} RESTART IDENTITY CASCADE")
+            )
+            connection.execute(
+                text(
+                    "UPDATE event_sources SET last_source_sequence = NULL "
+                    "WHERE source_id IN :source_ids"
+                ).bindparams(bindparam("source_ids", expanding=True)),
+                {"source_ids": list(FIXTURE_SOURCE_IDS)},
             )
         self.db.expire_all()
         self.audit_start = self.db.scalar(select(func.count(AuditEntry.id))) or 0
@@ -237,6 +281,7 @@ class ScenarioRuntime:
                 # unrestricted so missing topology never turns into an auth false positive.
                 source.allowed_line_ids = []
                 source.allowed_station_ids = []
+            source.last_source_sequence = None
 
     def _configure_fixture_routes(self) -> None:
         config = json.loads(
@@ -355,6 +400,13 @@ class ScenarioRuntime:
     def deliver(self, value: dict[str, Any]) -> Any:
         self.deliveries += 1
         event = self._prepare_event(value)
+        occurred_at = event.get("occurred_at")
+        self._last_event_at = (
+            datetime.fromisoformat(str(occurred_at).replace("Z", "+00:00"))
+            if occurred_at
+            else self._last_event_at
+        )
+        self._action_offset = 0
         token = self.settings.source_demo_token
         try:
             result = ingest_event(
@@ -439,6 +491,7 @@ class ScenarioRuntime:
                     principal,
                     self.db,
                 )
+                self._stamp_decision(result, ncr)
             alias = payload.get("nonconformance_id")
             if alias and len(ncrs) == 1:
                 self.ncr_aliases[str(alias)] = ncrs[0].id
@@ -459,6 +512,7 @@ class ScenarioRuntime:
                 principal,
                 self.db,
             )
+            self._stamp_decision(result, ncr)
             self.action_results[action] = result["verification_status"]
             return result
 
@@ -476,6 +530,7 @@ class ScenarioRuntime:
                 principal,
                 self.db,
             )
+            self._stamp_decision(result, ncr)
             self.action_results[action] = "ALLOWED"
             return result
 

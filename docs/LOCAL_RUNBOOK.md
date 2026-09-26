@@ -96,7 +96,7 @@ docker compose -f compose.yaml -f compose.demo.yaml up -d --build --wait
 
 ## 6. Clean reset
 
-The Scenario Runner has its own demo reset and should be preferred while testing scenarios.
+The **Приёмочные сценарии** page has its own demo reset and should be preferred while testing fixed scenarios. The separate **Симуляция производства** service keeps live in-memory sessions; see `docs/LIVE_FACTORY_SIMULATOR.md`.
 
 If the whole local environment has become dirty after manual role/route/database experiments, reset the Docker volume:
 
@@ -174,7 +174,7 @@ Check:
 docker compose -f compose.yaml -f compose.demo.yaml logs -f worker erp-emulator
 ```
 
-Then open Streamlit -> Data Health / Administration -> Integrations. Outbox states should be `PENDING`, `RETRYING`, `FAILED`, or `DELIVERED`.
+Then open Streamlit -> **Состояние данных** / **Администрирование** -> **Интеграции**. Human labels are shown first; raw outbox states remain in technical data.
 
 ## 9. Before a presentation
 

@@ -13,3 +13,34 @@ services:
   erp-emulator:
     ports:
       - "127.0.0.1:${TRACEQ_ERP_PORT:-8090}:8090"
+
+  streamlit:
+    environment:
+      FACTORY_SIMULATOR_URL: http://factory-simulator:8070
+    depends_on:
+      factory-simulator:
+        condition: service_healthy
+
+  factory-simulator:
+    build:
+      context: .
+      dockerfile: docker/python.Dockerfile
+    environment:
+      TRACEQ_API_URL: http://backend:8080
+      SOURCE_DEMO_TOKEN: ${SOURCE_DEMO_TOKEN:-}
+      SIMULATOR_READER_USERNAME: factory-simulator
+      SIMULATOR_READER_PASSWORD: ${SIMULATOR_READER_PASSWORD:-}
+    command: ["uvicorn", "factory_simulator.main:app", "--host", "0.0.0.0", "--port", "8070"]
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8070/health')"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    expose: ["8070"]
+    ports:
+      - "127.0.0.1:${TRACEQ_SIMULATOR_PORT:-8070}:8070"
+    networks: [traceq-internal]
+    restart: unless-stopped

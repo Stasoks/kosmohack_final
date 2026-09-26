@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import os
+
 import streamlit as st
 
 from streamlit_app.api_client.client import APIError, login
@@ -42,7 +44,10 @@ pages = [
         icon=spec.icon,
         default=spec.view_name == "overview",
     )
-    for spec in authorized_page_specs(st.session_state.profile)
+    for spec in authorized_page_specs(
+        st.session_state.profile,
+        demo_mode=os.getenv("DEMO_MODE", "false").lower() in {"1", "true", "yes"},
+    )
 ]
 
 navigation = st.navigation(pages)

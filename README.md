@@ -6,6 +6,8 @@ TRACE-Q is an event-driven MVP for quality control and traceability of physical 
 
 ```text
 Browser → Streamlit → FastAPI → PostgreSQL 16
+             ↕           ↑
+       Factory Simulator ┘ (demo only)
                          ↕
                     ERP Emulator
                          ↑
@@ -16,7 +18,7 @@ Streamlit never connects to PostgreSQL. Authentication, RBAC, event validation, 
 
 ## Quick start (demo only)
 
-Requirements: Docker with Compose, approximately 1 GB free RAM, and ports `8501`, `8080`, `8090`, and debug-only `55432` available on localhost.
+Requirements: Docker with Compose, approximately 1 GB free RAM, and ports `8501`, `8080`, `8070`, `8090`, and debug-only `55432` available on localhost.
 
 ```bash
 cp -n .env.example .env
@@ -40,7 +42,9 @@ Never reuse these credentials or the demo crypto keys outside the demo profile. 
 
 ## Demo scenarios
 
-Log in as any demo user and open **Scenario Runner**. The runner executes the same S01-S25 acceptance bundles used by PostgreSQL CI, including optional action/request/ERP/tamper/route files, then compares normalized business state with `expected.json`.
+Log in as any demo user and open **Приёмочные сценарии**. The runner executes the same S01-S25 acceptance bundles used by PostgreSQL CI, including optional action/request/ERP/tamper/route files, then compares normalized business state with `expected.json`.
+
+For a continuously controlled route-driven flow, open **Симуляция производства**. This separate demo service sends canonical MES/Vision/equipment events through the public ingestion API and waits for real controller decisions in TRACE-Q. See [live simulator](docs/LIVE_FACTORY_SIMULATOR.md) and [simulator testing](docs/SIMULATOR_TESTING.md).
 
 Useful demo points: `S03` shows a bounded Defect Birth Window, `S08` runs controller decision → rework → repeat inspection → release, `S19` demonstrates stable-message-ID outbox retry, and `S09` demonstrates tamper detection. See [docs/scenarios.md](docs/scenarios.md).
 
@@ -83,6 +87,8 @@ PostgreSQL integration tests use `TRACEQ_TEST_DATABASE_URL`; SQLite is intention
 - [Recovery](docs/recovery.md)
 - [Local runbook](docs/LOCAL_RUNBOOK.md)
 - [Module testing guide](docs/MODULE_TESTING.md)
+- [Live factory simulator](docs/LIVE_FACTORY_SIMULATOR.md)
+- [Simulator testing](docs/SIMULATOR_TESTING.md)
 - [Pre-demo audit report](docs/AUDIT_REPORT.md)
 - [Assumptions and limitations](docs/assumptions.md)
 

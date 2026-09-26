@@ -5,7 +5,7 @@ import re
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, Request
-from sqlalchemy import create_engine, text
+from sqlalchemy import bindparam, create_engine, text
 from sqlalchemy.orm import Session
 
 from backend.app.errors import NotFoundError, TraceQError
@@ -14,7 +14,7 @@ from backend.app.security.audit import write_audit
 from backend.app.security.auth import Principal, require_permission
 from backend.app.settings import Settings, get_settings
 from backend.app.scenarios.harness import ScenarioBundle, ScenarioHarness
-from backend.app.scenarios.runtime import ScenarioRuntime
+from backend.app.scenarios.runtime import FIXTURE_SOURCE_IDS, ScenarioRuntime
 
 
 router = APIRouter(prefix="/api/v1/demo", tags=["demo"])
@@ -41,10 +41,21 @@ def scenarios(_: Principal = Depends(require_permission("RUN_DEMO_SCENARIOS"))):
         if not path.is_dir() or not (path / "expected.json").exists():
             continue
         expected = json.loads((path / "expected.json").read_text(encoding="utf-8"))
+        metadata_path = path / "scenario.json"
+        metadata = (
+            json.loads(metadata_path.read_text(encoding="utf-8"))
+            if metadata_path.exists()
+            else {}
+        )
         values.append(
             {
                 "name": path.name,
-                "description": expected.get("description", path.name),
+                "title": metadata.get("title", path.name),
+                "description": metadata.get(
+                    "purpose", expected.get("description", path.name)
+                ),
+                "priority": metadata.get("priority"),
+                "test_targets": metadata.get("test_targets", []),
                 "expected": {key: value for key, value in expected.items() if key != "description"},
             }
         )
@@ -152,6 +163,13 @@ def reset_demo(
     engine = create_engine(settings.demo_privileged_database_url)
     with engine.begin() as connection:
         connection.execute(text(f"TRUNCATE TABLE {', '.join(tables)} RESTART IDENTITY CASCADE"))
+        connection.execute(
+            text(
+                "UPDATE event_sources SET last_source_sequence = NULL "
+                "WHERE source_id IN :source_ids"
+            ).bindparams(bindparam("source_ids", expanding=True)),
+            {"source_ids": list(FIXTURE_SOURCE_IDS)},
+        )
     audit_db = SessionLocal()
     try:
         write_audit(

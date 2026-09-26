@@ -52,6 +52,7 @@ class Settings(BaseSettings):
     demo_technologist_password: SecretStr | None = None
     demo_manager_password: SecretStr | None = None
     demo_admin_password: SecretStr | None = None
+    simulator_reader_password: SecretStr | None = None
 
     @field_validator("source_demo_token", mode="before")
     @classmethod

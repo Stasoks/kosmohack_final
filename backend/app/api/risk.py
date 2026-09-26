@@ -5,7 +5,7 @@ from datetime import datetime
 
 from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel, Field, model_validator
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from backend.app.errors import NotFoundError, TraceQError
@@ -124,8 +124,28 @@ def list_approvals(
         .where(ApprovalRequest.status == status)
         .order_by(ApprovalRequest.created_at)
     ).all()
-    return [
-        {
+    result = []
+    for row in rows:
+        proposal = (
+            db.get(ContainmentProposal, uuid.UUID(row.target_id))
+            if row.target_type == "containment_proposal"
+            else None
+        )
+        query = (
+            db.get(BlastRadiusQuery, proposal.blast_radius_query_id)
+            if proposal and proposal.blast_radius_query_id
+            else None
+        )
+        affected_count = (
+            db.scalar(
+                select(func.count(BlastRadiusExposure.id)).where(
+                    BlastRadiusExposure.query_id == query.id
+                )
+            )
+            if query
+            else 0
+        )
+        result.append({
             "id": row.id,
             "action_type": row.action_type,
             "target_type": row.target_type,
@@ -136,9 +156,15 @@ def list_approvals(
             "status": row.status,
             "reason": row.reason,
             "created_at": row.created_at,
-        }
-        for row in rows
-    ]
+            "factor_type": query.factor_type if query else None,
+            "factor_value": query.factor_value if query else None,
+            "affected_from": query.affected_from if query else None,
+            "affected_to": query.affected_to if query else None,
+            "affected_items_count": affected_count,
+            "proposed_action": proposal.containment if proposal else None,
+            "rationale": proposal.rationale if proposal else row.reason,
+        })
+    return result
 
 
 @router.post("/approvals/{approval_id}/approve")

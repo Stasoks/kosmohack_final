@@ -1,6 +1,6 @@
 # Scenario suite
 
-Every directory under `scenarios/` is an executable acceptance bundle. The same fixtures feed JSON Schema checks, PostgreSQL pytest, the FastAPI demo endpoint, and the Streamlit Scenario Runner. `events.jsonl` order is delivery order; `occurred_at` remains production time and is never used to reorder delivery.
+Every directory under `scenarios/` is an executable acceptance bundle. The same fixtures feed JSON Schema checks, PostgreSQL pytest, the FastAPI demo endpoint, and the Streamlit **Приёмочные сценарии** page. `events.jsonl` order is delivery order; `occurred_at` remains production time and is never used to reorder delivery.
 
 | Scenario | Main assertion |
 |---|---|
@@ -48,6 +48,6 @@ A compact review sequence is:
 6. Run S09 and show ciphertext tamper detection.
 7. Run S22 to demonstrate RBAC and the controlled-release gate.
 
-Scenario Runner is an explainable demo surface and the same bundles are also executed automatically in the PostgreSQL CI job.
+**Приёмочные сценарии** is an explainable demo surface and the same bundles are also executed automatically in the PostgreSQL CI job. It is separate from the route-driven live factory simulator.
 
 For a timed 5–7 minute walkthrough, use [demo.md](demo.md).
