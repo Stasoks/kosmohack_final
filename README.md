@@ -46,6 +46,8 @@ Log in as any demo user and open **Приёмочные сценарии**. The 
 
 For a continuously controlled route-driven flow, open **Симуляция производства**. This separate demo service sends canonical MES/Vision/equipment events through the public ingestion API and waits for real controller decisions in TRACE-Q. See [live simulator](docs/LIVE_FACTORY_SIMULATOR.md) and [simulator testing](docs/SIMULATOR_TESTING.md).
 
+Users with `VIEW_ANALYTICS` see a near-real-time quality dashboard at the top of **Обзор**. It polls the read-only `GET /api/v1/analytics/live-quality` endpoint every two seconds and keeps trusted GOOD, defect signals, human-confirmed NCR, equipment warnings, rework and release visibly separate. See [realtime dashboard](docs/REALTIME_DASHBOARD.md).
+
 Useful demo points: `S03` shows a bounded Defect Birth Window, `S08` runs controller decision → rework → repeat inspection → release, `S19` demonstrates stable-message-ID outbox retry, and `S09` demonstrates tamper detection. See [docs/scenarios.md](docs/scenarios.md).
 
 ## Tests and contracts
@@ -99,6 +101,7 @@ python scripts/verify_final_improvements.py --default
 - [Module testing guide](docs/MODULE_TESTING.md)
 - [Live factory simulator](docs/LIVE_FACTORY_SIMULATOR.md)
 - [Simulator testing](docs/SIMULATOR_TESTING.md)
+- [Realtime quality dashboard](docs/REALTIME_DASHBOARD.md)
 - [Deterministic scalability proof](docs/SCALING_PROOF.md)
 - [Pre-demo audit report](docs/AUDIT_REPORT.md)
 - [Assumptions and limitations](docs/assumptions.md)
