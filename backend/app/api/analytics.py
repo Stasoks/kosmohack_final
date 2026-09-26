@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from typing import Literal
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
@@ -21,10 +22,23 @@ from backend.app.persistence.models import (
     ProjectionState,
     WorkerHeartbeat,
 )
+from backend.app.read_models.live_quality import (
+    build_live_quality_snapshot,
+    first_pass_yield,
+)
 from backend.app.security.auth import Principal, require_any_permission, require_permission
 
 
 router = APIRouter(prefix="/api/v1/analytics", tags=["analytics"])
+
+
+@router.get("/live-quality")
+def live_quality(
+    window: Literal["15m", "1h", "24h", "all"] = Query(default="1h"),
+    _: Principal = Depends(require_permission("VIEW_ANALYTICS")),
+    db: Session = Depends(get_db),
+):
+    return build_live_quality_snapshot(db, window=window)
 
 
 @router.get("/kpi")
@@ -142,7 +156,7 @@ def quality_kpi(
         "rework_count": rework_count,
         "rework_items": rework_items,
         "rework_item_rate": rework_items / total_items if total_items else None,
-        "first_pass_yield": (assessable - confirmed_items) / assessable if assessable else None,
+        "first_pass_yield": first_pass_yield(assessable, confirmed_items),
         "birth_window_width_avg_seconds": sum(widths) / len(widths) if widths else None,
         "birth_window_width_p95_seconds": percentile(sorted(widths), 0.95),
         "post_operation_detection_delay_avg_seconds": (
