@@ -11,6 +11,7 @@ from backend.app.errors import NotFoundError, TraceQError
 from backend.app.domain.routes import StepInput, validate_steps
 from backend.app.persistence.database import get_db
 from backend.app.persistence.models import Item, RouteDefinition, RouteRevision, RouteStep
+from backend.app.quality.coverage_gaps import analyze_route_coverage
 from backend.app.security.auth import Principal, require_critical_permission, require_permission
 from backend.app.security.audit import write_audit
 from backend.app.security.crypto import utcnow
@@ -140,6 +141,34 @@ def get_route(
     if not route:
         raise NotFoundError("Route")
     return _serialize(db, route)
+
+
+@router.get("/{route_id}/coverage-analysis")
+def coverage_analysis(
+    route_id: uuid.UUID,
+    revision_id: uuid.UUID | None = None,
+    _: Principal = Depends(require_permission("VIEW_PRODUCT")),
+    db: Session = Depends(get_db),
+):
+    route = db.get(RouteDefinition, route_id)
+    if not route:
+        raise NotFoundError("Route")
+    selected_revision_id = revision_id or route.active_revision_id
+    revision = db.get(RouteRevision, selected_revision_id) if selected_revision_id else None
+    if not revision or revision.route_id != route.id:
+        raise NotFoundError("Route revision")
+    steps = db.scalars(
+        select(RouteStep)
+        .where(RouteStep.route_revision_id == revision.id)
+        .order_by(RouteStep.position)
+    ).all()
+    result = analyze_route_coverage(steps)
+    return {
+        "route_id": route.id,
+        "revision_id": revision.id,
+        "revision": revision.revision,
+        **result,
+    }
 
 
 @router.post("/{route_id}/revisions")

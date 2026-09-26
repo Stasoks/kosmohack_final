@@ -43,6 +43,9 @@ LABELS: dict[str, str] = {
     "failure": "Ошибка",
     "denied": "Отказано",
     "pending": "Ожидает",
+    "draft": "Черновик",
+    "active": "Действующая",
+    "superseded": "Предыдущая",
 }
 
 DEFECT_LABELS: dict[str, str] = {
@@ -131,6 +134,13 @@ DOMAIN_LABELS: dict[str, dict[str, str]] = {
         "PARTIAL": "Частичное покрытие",
         "NONE": "Не проверяется",
         "TARGET_ONLY": "Только целевая проверка после доработки",
+    },
+    "coverage_gap": {
+        "FULL_AVAILABLE": "Есть полная контрольная точка",
+        "PARTIAL_ONLY": "Только частичное покрытие",
+        "NO_GENERAL_COVERAGE": "Нет общего покрытия",
+        "TARGET_ONLY_ONLY": "Только целевой контроль после доработки",
+        "UNSCOPED_LEGACY": "Legacy-настройка без матрицы покрытия",
     },
     "containment": {
         "NONE": "Без ограничений",
@@ -573,6 +583,21 @@ def route_revision_label(
 ) -> str:
     name = route_name_label(route_name, route_code)
     return f"{name} · Версия {revision}" if revision not in (None, "") else name
+
+
+def coverage_analysis_rows(value: dict[str, Any]) -> list[dict[str, str]]:
+    result: list[dict[str, str]] = []
+    for row in value.get("rows") or []:
+        selector = str(row.get("component_selector") or "*")
+        result.append(
+            {
+                "Компонент": "Все компоненты" if selector == "*" else selector,
+                "Тип дефекта": defect_label(row.get("defect_type")),
+                "Результат": label(row.get("status"), domain="coverage_gap"),
+                "Контрольные точки": ", ".join(row.get("control_points") or []) or "—",
+            }
+        )
+    return result
 
 
 def draft_revision_label(revision: dict[str, Any]) -> str:

@@ -20,6 +20,7 @@ from streamlit_app.ui.presentation import (
     api_error_message,
     birth_window_presentation,
     cause_chart_rows,
+    coverage_analysis_rows,
     control_device_label,
     control_device_invalidation_payload,
     defect_chart_rows,
@@ -656,6 +657,59 @@ def route_editor() -> None:
         st.caption(f"Технический код: {route['code']}")
         technical_data(route, "Технические данные маршрута")
         revisions = route["revisions"]
+        if revisions:
+            st.subheader("Пробелы контрольного покрытия")
+            revision_options = {
+                f"Версия {revision['revision']} · {label(revision['status'])}": revision
+                for revision in revisions
+            }
+            active_label = next(
+                (
+                    option
+                    for option, revision in revision_options.items()
+                    if revision["id"] == route.get("active_revision_id")
+                ),
+                next(iter(revision_options)),
+            )
+            selected_revision_label = st.selectbox(
+                "Версия маршрута для анализа",
+                list(revision_options),
+                index=list(revision_options).index(active_label),
+                key=f"coverage_revision_{route['id']}",
+            )
+            selected_revision = revision_options[selected_revision_label]
+            coverage = request(
+                "GET",
+                f"/api/v1/routes/{route['id']}/coverage-analysis",
+                params={"revision_id": selected_revision["id"]},
+            )
+            summary = coverage["summary"]
+            coverage_metrics = st.columns(5)
+            coverage_metrics[0].metric("Проверено сочетаний", summary["keys_analyzed"])
+            coverage_metrics[1].metric("Есть полное покрытие", summary["full_available"])
+            coverage_metrics[2].metric("Только частичное", summary["partial_only"])
+            coverage_metrics[3].metric(
+                "Нет общего покрытия", summary["no_general_coverage"]
+            )
+            coverage_metrics[4].metric(
+                "Только после доработки", summary["target_only_only"]
+            )
+            st.dataframe(
+                coverage_analysis_rows(coverage),
+                use_container_width=True,
+                hide_index=True,
+            )
+            if coverage.get("limitations"):
+                st.warning(
+                    "Часть настроек области контроля имеет некорректный формат. "
+                    "Эти точки не использованы как подтверждение покрытия."
+                )
+            st.caption(
+                "Анализ отражает настроенную capability matrix маршрута. "
+                "Он не является промышленной валидацией обнаружимости дефекта и не "
+                "заменяет испытания реальной оптики, освещения, метрологии или NDT."
+            )
+
         base = revisions[-1]["steps"] if revisions else []
         default_json = json.dumps(
             [

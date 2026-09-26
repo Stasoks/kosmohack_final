@@ -19,6 +19,7 @@ from streamlit_app.ui.presentation import (
     api_error_message,
     birth_window_presentation,
     coverage_explanation,
+    coverage_analysis_rows,
     cause_chart_rows,
     control_device_label,
     control_device_invalidation_payload,
@@ -416,6 +417,30 @@ def test_degraded_structure_and_partial_coverage_are_explained_as_fallbacks() ->
         "Проверка достоверна, но покрывает этот тип дефекта только частично. "
         "Поэтому отсутствие дефекта на этой проверке не доказывает, что дефекта не было."
     )
+
+
+def test_coverage_analysis_is_presented_with_human_labels() -> None:
+    rows = coverage_analysis_rows(
+        {
+            "rows": [
+                {
+                    "component_selector": "*",
+                    "defect_type": "surface_crack",
+                    "status": "PARTIAL_ONLY",
+                    "control_points": ["CP-INCOMING"],
+                }
+            ]
+        }
+    )
+
+    assert rows == [
+        {
+            "Компонент": "Все компоненты",
+            "Тип дефекта": "Поверхностная трещина",
+            "Результат": "Только частичное покрытие",
+            "Контрольные точки": "CP-INCOMING",
+        }
+    ]
 
 
 def test_security_alerts_have_human_explanations() -> None:

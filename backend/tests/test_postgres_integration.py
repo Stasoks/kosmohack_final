@@ -402,3 +402,100 @@ def test_real_outbox_worker_retries_then_delivers_same_message(monkeypatch) -> N
         assert health.status == "HEALTHY"
     finally:
         db.close()
+
+
+def test_route_coverage_analysis_is_read_only_and_revision_specific() -> None:
+    from backend.app.persistence.database import engine
+
+    client = _client()
+    technologist = _login(client, "technologist", "technologist-demo")
+    headers = _headers(technologist)
+    route_code = "COVERAGE-ANALYSIS-ROUTE"
+
+    first = client.post(
+        "/api/v1/routes/import",
+        headers=headers,
+        json={
+            "code": route_code,
+            "name": "Coverage analysis route",
+            "activate": True,
+            "steps": [
+                {
+                    "operation_id": "COVERAGE-OP-1",
+                    "operation_name": "Coverage operation 1",
+                    "control_point_id": "CP-COVERAGE-1",
+                    "required": True,
+                    "inspection_scope": {
+                        "coverage": {"*": {"surface_crack": "FULL"}},
+                        "default_coverage": "NONE",
+                    },
+                }
+            ],
+        },
+    )
+    assert first.status_code == 200, first.text
+    route_id = first.json()["route_id"]
+    revision_one = first.json()["revision_id"]
+    second = client.post(
+        f"/api/v1/routes/{route_id}/revisions",
+        headers=headers,
+        json={
+            "steps": [
+                {
+                    "operation_id": "COVERAGE-OP-2",
+                    "operation_name": "Coverage operation 2",
+                    "control_point_id": "CP-COVERAGE-2",
+                    "required": True,
+                    "inspection_scope": {
+                        "coverage": {"*": {"surface_crack": "PARTIAL"}},
+                        "default_coverage": "NONE",
+                    },
+                }
+            ]
+        },
+    )
+    assert second.status_code == 200, second.text
+    revision_two = second.json()["revision_id"]
+
+    with engine.connect() as connection:
+        before = tuple(
+            connection.scalar(text(f"SELECT count(*) FROM {table}"))
+            for table in (
+                "route_definitions",
+                "route_revisions",
+                "route_steps",
+                "audit_entries",
+            )
+        )
+
+    active = client.get(
+        f"/api/v1/routes/{route_id}/coverage-analysis", headers=headers
+    )
+    old_revision = client.get(
+        f"/api/v1/routes/{route_id}/coverage-analysis",
+        headers=headers,
+        params={"revision_id": revision_one},
+    )
+    draft_revision = client.get(
+        f"/api/v1/routes/{route_id}/coverage-analysis",
+        headers=headers,
+        params={"revision_id": revision_two},
+    )
+
+    assert active.status_code == 200, active.text
+    assert old_revision.status_code == 200, old_revision.text
+    assert draft_revision.status_code == 200, draft_revision.text
+    assert active.json()["revision_id"] == revision_one
+    assert old_revision.json()["rows"][0]["status"] == "FULL_AVAILABLE"
+    assert draft_revision.json()["rows"][0]["status"] == "PARTIAL_ONLY"
+    with engine.connect() as connection:
+        after = tuple(
+            connection.scalar(text(f"SELECT count(*) FROM {table}"))
+            for table in (
+                "route_definitions",
+                "route_revisions",
+                "route_steps",
+                "audit_entries",
+            )
+        )
+    assert after == before
