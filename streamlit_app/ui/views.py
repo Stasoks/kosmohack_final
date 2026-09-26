@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from functools import wraps
 from typing import Callable
 
 import streamlit as st
@@ -9,6 +10,7 @@ from streamlit_app.api_client.client import APIError, logout, request
 
 
 def guarded(render: Callable[[], None]) -> Callable[[], None]:
+    @wraps(render)
     def wrapped() -> None:
         try:
             render()
