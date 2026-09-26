@@ -1043,15 +1043,59 @@ def admin_panel() -> None:
         technical_data(audit, "Технические записи аудита")
     with tabs[5]:
         crypto = request("GET", "/api/v1/admin/crypto-profile")
+        readiness = crypto["readiness"]
         st.info(
             f"Активный криптографический профиль: {crypto['profile_id']}. "
             "Ключи не хранятся в базе данных."
         )
+        crypto_cols = st.columns(3)
+        crypto_cols[0].metric(
+            "ECDSA P-256",
+            readiness["classic"]["self_test"],
+            readiness["classic"].get("key_id") or "ключ не настроен",
+        )
+        crypto_cols[1].metric(
+            "ML-DSA-65",
+            readiness["pq"]["self_test"],
+            readiness["pq"].get("key_id") or "ключ не настроен",
+        )
+        crypto_cols[2].metric(
+            "Готовность профиля", "PASS" if readiness["ready"] else "NOT READY"
+        )
+        st.caption(
+            "ECDSA: "
+            f"{readiness['classic'].get('key_id') or '—'} / "
+            f"v{readiness['classic'].get('key_version') or '—'} · "
+            "ML-DSA-65: "
+            f"{readiness['pq'].get('key_id') or '—'} / "
+            f"v{readiness['pq'].get('key_version') or '—'}"
+        )
+        with st.expander("Изменить криптографический профиль"):
+            with st.form("activate_crypto_profile"):
+                selected_profile = st.selectbox(
+                    "Профиль",
+                    crypto["available_profiles"],
+                    index=crypto["available_profiles"].index(crypto["profile_id"]),
+                )
+                activation_reason = st.text_area("Причина активации")
+                if st.form_submit_button("Активировать профиль"):
+                    request(
+                        "PATCH",
+                        "/api/v1/admin/crypto-profile",
+                        json={
+                            "profile_id": selected_profile,
+                            "reason": activation_reason,
+                        },
+                    )
+                    st.success("Криптографический профиль активирован")
+                    st.rerun()
         technical_data(crypto, "Параметры криптографического профиля")
         if st.button("Проверить целостность", type="primary"):
             result = request("POST", "/api/v1/admin/integrity/verify")
             if result["status"] == "OK":
                 st.success("Целостность подтверждена")
+            elif result["status"] == "UNVERIFIABLE":
+                st.warning("Часть контрольных подписей нельзя проверить: ключ недоступен")
             else:
                 st.error("Нарушена целостность данных")
             check_cols = st.columns(4)
