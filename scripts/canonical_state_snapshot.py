@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import sys
 import uuid
 from datetime import date, datetime, timezone
 from pathlib import Path
@@ -10,6 +11,11 @@ from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
+
+if __package__ in (None, ""):
+    repository_root = Path(__file__).resolve().parents[1]
+    if str(repository_root) not in sys.path:
+        sys.path.insert(0, str(repository_root))
 
 from backend.app.persistence.models import (
     AnalysisEvidence,

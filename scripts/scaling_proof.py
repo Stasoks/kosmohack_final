@@ -4,6 +4,7 @@ import argparse
 import asyncio
 import hashlib
 import json
+import sys
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -12,6 +13,15 @@ from typing import Any
 
 import httpx
 from sqlalchemy import create_engine, func, select, text
+
+# ``python scripts/scaling_proof.py`` makes ``scripts/`` sys.path[0].  Add the
+# repository root before importing sibling modules through the ``scripts``
+# namespace.  Module execution (``python -m scripts.scaling_proof``) already
+# has the correct path and therefore needs no adjustment.
+if __package__ in (None, ""):
+    repository_root = Path(__file__).resolve().parents[1]
+    if str(repository_root) not in sys.path:
+        sys.path.insert(0, str(repository_root))
 
 from scripts.canonical_state_snapshot import (
     build_kpi_snapshot,

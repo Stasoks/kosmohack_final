@@ -5,7 +5,11 @@ import logging
 import time
 import uuid
 from contextlib import asynccontextmanager
+from functools import lru_cache
+from pathlib import Path
 
+from alembic.config import Config
+from alembic.script import ScriptDirectory
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
@@ -23,6 +27,17 @@ from backend.app.settings import get_settings
 settings = get_settings()
 logging.basicConfig(level=getattr(logging, settings.log_level.upper(), logging.INFO), format="%(message)s")
 logger = logging.getLogger("traceq")
+REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
+
+
+@lru_cache(maxsize=1)
+def expected_migration_heads() -> frozenset[str]:
+    """Resolve repository migration heads without running Alembic commands."""
+    config = Config(str(REPOSITORY_ROOT / "alembic.ini"))
+    config.set_main_option(
+        "script_location", str(REPOSITORY_ROOT / "backend" / "alembic")
+    )
+    return frozenset(ScriptDirectory.from_config(config).get_heads())
 
 
 @asynccontextmanager
@@ -173,10 +188,17 @@ def ready():
     db = SessionLocal()
     try:
         db.execute(text("SELECT 1"))
-        revision = db.scalar(text("SELECT version_num FROM alembic_version LIMIT 1"))
-        if revision != "20260926_0004":
+        revisions = frozenset(
+            str(value)
+            for value in db.scalars(text("SELECT version_num FROM alembic_version")).all()
+        )
+        expected = expected_migration_heads()
+        if revisions != expected:
             return JSONResponse(status_code=503, content={"status": "not_ready", "reason": "migration"})
-        return {"status": "ready", "migration": revision, "crypto_profile": "classic-v1"}
+        migration: str | list[str] = (
+            next(iter(revisions)) if len(revisions) == 1 else sorted(revisions)
+        )
+        return {"status": "ready", "migration": migration, "crypto_profile": "classic-v1"}
     except Exception:
         return JSONResponse(status_code=503, content={"status": "not_ready", "reason": "database"})
     finally:

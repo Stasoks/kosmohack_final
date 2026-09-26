@@ -1,12 +1,45 @@
 from __future__ import annotations
 
 import json
+import subprocess
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
 from scripts.canonical_state_snapshot import canonical_json_bytes, normalize, stable_hash
 from scripts.generate_load import generate
 from scripts.scaling_proof import build_report, render_markdown
+
+
+ROOT = Path(__file__).resolve().parents[2]
+
+
+def test_scaling_proof_direct_cli_help_runs_from_repository_root() -> None:
+    result = subprocess.run(
+        [sys.executable, "scripts/scaling_proof.py", "--help"],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "--outbox-workers" in result.stdout
+
+
+def test_canonical_snapshot_direct_cli_help_runs_from_repository_root() -> None:
+    result = subprocess.run(
+        [sys.executable, "scripts/canonical_state_snapshot.py", "--help"],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "--output" in result.stdout
 
 
 def test_scaling_dataset_is_reused_byte_for_byte() -> None:
